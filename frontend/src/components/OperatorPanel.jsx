@@ -432,10 +432,10 @@ export default function OperatorPanel({ lines }) {
 
   const fetchData = async (line) => {
     try {
-      const historyRes = await fetch(`http://127.0.0.1:8000/api/history/${line}`);
+      const historyRes = await fetch(`https://pti-cables-system.onrender.com/api/history/${line}`);
       if (historyRes.ok) setProductionHistory(await historyRes.json());
 
-      const jobRes = await fetch(`http://127.0.0.1:8000/api/jobs/${line}`);
+      const jobRes = await fetch(`https://pti-cables-system.onrender.com/api/jobs/${line}`);
       if (jobRes.ok) {
         const jobData = await jobRes.json();
         setActiveJobs(jobData);
@@ -443,7 +443,7 @@ export default function OperatorPanel({ lines }) {
         else if (jobData.length === 0) setSelectedJobId('');
       }
       
-      const notesRes = await fetch(`http://127.0.0.1:8000/api/notes/${line}`);
+      const notesRes = await fetch(`https://pti-cables-system.onrender.com/api/notes/${line}`);
       if (notesRes.ok) {
         const notesData = await notesRes.json();
         setShiftNotes(Array.isArray(notesData) ? notesData : []); 
@@ -508,7 +508,7 @@ export default function OperatorPanel({ lines }) {
     if (!operatorName.trim()) { await showCustomModal("Missing Name", "Please enter your Operator Name inside the white form so we know who wrote this note.", "alert"); return; }
     
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/notes', { 
+      const response = await fetch('https://pti-cables-system.onrender.com/api/notes', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ line_name: selectedLine, message: newNoteText, author: `${operatorName} (${getCurrentShift()} Shift)` }) 
@@ -521,7 +521,7 @@ export default function OperatorPanel({ lines }) {
     const proceed = await showCustomModal("Resolve Note?", "Are you sure you want to remove this sticky note? Only remove it if the issue has been resolved.", "confirm");
     if (!proceed) return;
     try {
-      await fetch(`http://127.0.0.1:8000/api/notes/${noteId}`, { method: 'DELETE' });
+      await fetch(`https://pti-cables-system.onrender.com/api/notes/${noteId}`, { method: 'DELETE' });
       fetchData(selectedLine);
     } catch (error) { console.error(error); }
   };
@@ -576,7 +576,7 @@ export default function OperatorPanel({ lines }) {
     };
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/pallets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch('https://pti-cables-system.onrender.com/api/pallets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (response.ok) {
         setAuditStart(''); setAuditEnd(''); setComments('');
         localStorage.removeItem(`draft_start_${selectedLine}_${selectedJobId}`); localStorage.removeItem(`draft_end_${selectedLine}_${selectedJobId}`); localStorage.removeItem(`draft_comments_${selectedLine}_${selectedJobId}`);
@@ -603,7 +603,7 @@ export default function OperatorPanel({ lines }) {
     };
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/quarantine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetch('https://pti-cables-system.onrender.com/api/quarantine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (response.ok) { printQuarantineLabel(payload); }
     } catch (error) { console.error(error); }
   };
@@ -611,7 +611,7 @@ export default function OperatorPanel({ lines }) {
   const closeJob = async () => {
     const proceed = await showCustomModal("Close Work Order?", `Are you sure you want to mark the work order for ${currentJob.wire_type} as complete?\n\nIt will disappear from the active list.`, "confirm");
     if (!proceed) return;
-    try { await fetch(`http://127.0.0.1:8000/api/jobs/${currentJob.id}/close`, { method: 'POST' }); setSelectedJobId(''); fetchData(selectedLine); } catch (error) { console.error(error); }
+    try { await fetch(`https://pti-cables-system.onrender.com/api/jobs/${currentJob.id}/close`, { method: 'POST' }); setSelectedJobId(''); fetchData(selectedLine); } catch (error) { console.error(error); }
   };
 
   const activeOrderObj = orderTabs.find(t => t.id === activeOrderTab);
