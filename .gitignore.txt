@@ -1,0 +1,14 @@
+# React background files
+node_modules/
+dist/
+.env
+
+# Python background files
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Database files
+*.db
