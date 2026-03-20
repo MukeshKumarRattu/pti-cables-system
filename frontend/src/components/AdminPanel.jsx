@@ -1,805 +1,831 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
-const TYPE_OPTIONS = ["NMD90", "NMWU", "T90", "RW90", "RWU90", "TWU", "TRACER WIRE"];
-const SIZE_OPTIONS = [
-  "14/2", "14/3", "12/2", "12/3", "10/2", "10/3", "8/2", "8/3", "6/2", "6/3", "4/3", 
-  "16 AWG", "14 AWG", "12 AWG", "10 AWG", "8 AWG", "6 AWG", "4 AWG", "3 AWG", "2 AWG", "1/0 AWG", "2/0 AWG", "3/0 AWG", "4/0 AWG",
-  "14/19", "12/19", "10/19", "8/19", "6/19", "4/19", "3/19", "2/19",
-  "14/7", "12/7", "10/7", "8/7", "6/7", "4/7", "3/7", "2/7", "1/7"
-];
-const CONDUCTOR_OPTIONS = ["N/A", "Solid", "Stranded"];
-const COLOR_OPTIONS = ["None", "Red", "Black", "White", "Blue", "Green", "Yellow", "Brown", "Orange", "Cyan", "Grey", "Pink", "Purple"];
+// =========================================================================
+// SECTION 1: GLOBAL STYLES & HELPER FUNCTIONS
+// =========================================================================
+const STYLES = {
+  input: { width: '100%', padding: '12px 16px', fontSize: '16px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#0f172a', boxSizing: 'border-box', outline: 'none', transition: '0.2s' },
+  label: { display: 'block', fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  thExcel: { padding: '12px 16px', fontSize: '12px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', borderBottom: '2px solid #cbd5e1', borderRight: '1px solid #e2e8f0', backgroundColor: '#f1f5f9', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' },
+  tdExcel: { padding: '10px 16px', fontSize: '13px', color: '#334155', borderBottom: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', verticalAlign: 'middle' }
+};
 
-export default function AdminPanel({ lines }) {
-  const safeLines = Array.isArray(lines) && lines.length > 0 ? lines : Array.from({ length: 12 }, (_, i) => `Line ${i + 1}`);
+const formatClockTime = (utcString) => new Date(utcString.endsWith('Z') ? utcString : utcString + 'Z').toLocaleTimeString('en-CA', { timeZone: 'America/Toronto', hour12: false, hour: '2-digit', minute: '2-digit' });
+const formatDate = (utcString) => new Date(utcString.endsWith('Z') ? utcString : utcString + 'Z').toLocaleDateString('en-CA', { timeZone: 'America/Toronto', month: 'short', day: 'numeric' });
 
-  const leftColumnRef = useRef(null);
-  const [syncedHeight, setSyncedHeight] = useState('700px'); 
+const getCurrentShift = () => {
+  const currentHour = parseInt(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: 'numeric', hour12: false }).format(new Date()), 10);
+  return (currentHour >= 7 && currentHour < 19) ? 'Day' : 'Night';
+};
 
-  const [inventory, setInventory] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  const [buildType, setBuildType] = useState(TYPE_OPTIONS[0]);
-  const [buildSize, setBuildSize] = useState(SIZE_OPTIONS[0]);
-  const [buildConductor, setBuildConductor] = useState(CONDUCTOR_OPTIONS[0]);
-  const [buildColor, setBuildColor] = useState(COLOR_OPTIONS[0]);
-  const [buildLength, setBuildLength] = useState('');
+const printLabel = (row, isReel) => {
+  const unitLabel = isReel ? "Reel #" : "Pallet #";
+  const qtyLabel = isReel ? "Total Reels" : "Total Spools";
+  const shiftIcon = row.shift === 'Day' ? '☀️' : '🌙';
+  const printWindow = window.open('', '_blank', 'width=600,height=400');
+  printWindow.document.write(`
+    <html><head><title>Print Label</title><style>
+      body { font-family: 'Arial', sans-serif; padding: 20px; text-align: center; }
+      .label-box { border: 5px solid black; padding: 30px; margin: 0 auto; max-width: 450px; border-radius: 10px; }
+      h1 { font-size: 26px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 2px;}
+      h2 { font-size: 32px; color: #000; margin: 0 0 20px 0; border-bottom: 2px solid black; padding-bottom: 10px;}
+      .details { font-size: 20px; text-align: left; line-height: 1.8; }
+      .bold { font-weight: 900; display: inline-block; width: 140px; }
+      .highlight { background-color: #f0f0f0; padding: 2px 8px; border-radius: 4px; border: 1px solid #ccc; font-family: monospace; font-size: 24px;}
+    </style></head><body>
+    <div class="label-box">
+    <img src="/pti-logo.webp" alt="PTI Cables" style="height: 60px; margin-bottom: 10px;" />
+    <h2>${row.wire_type}</h2><div class="details">
+    <div><span class="bold">Machine:</span> ${row.line_name}</div>
+    <div><span class="bold">Operator:</span> ${row.operator_name || 'N/A'} <span style="font-size:16px;">(${shiftIcon} ${row.shift} Shift)</span></div>
+    <div><span class="bold">Date:</span> ${formatDate(row.timestamp)} ${formatClockTime(row.timestamp)}</div>
+    <div><span class="bold">${unitLabel}</span> <span style="font-size: 26px; font-weight: bold;">${row.pallet_num}</span></div>
+    <div><span class="bold">${qtyLabel}:</span> ${row.total_spools}</div>
+    <div style="margin-top: 15px;"><span class="bold">Audit Range:</span> <span class="highlight">${row.audit_start} - ${row.audit_end}</span></div>
+    </div></div><script>setTimeout(() => { window.print(); window.close(); }, 250);</script></body></html>
+  `);
+  printWindow.document.close();
+};
 
-  const [adminLine, setAdminLine] = useState(safeLines[0]);
-  const [wireType, setWireType] = useState('');
-  const [palletsNeeded, setPalletsNeeded] = useState('');
-  const [spoolsPerPallet, setSpoolsPerPallet] = useState('');
-  const [targetReels, setTargetReels] = useState('');
+const printQuarantineLabel = (payload) => {
+  const shiftIcon = payload.shift === 'Day' ? '☀️' : '🌙';
+  const printWindow = window.open('', '_blank', 'width=600,height=400');
+  printWindow.document.write(`
+    <html><head><title>Print Label</title><style>
+      body { font-family: 'Arial', sans-serif; padding: 20px; text-align: center; }
+      .label-box { border: 6px solid #ea580c; padding: 30px; margin: 0 auto; max-width: 450px; border-radius: 10px; background-color: #fff7ed; }
+      h1 { font-size: 36px; margin: 0 0 10px 0; color: #ea580c; text-transform: uppercase; font-weight: 900; letter-spacing: 2px;}
+      h2 { font-size: 28px; color: #000; margin: 0 0 20px 0; border-bottom: 2px dashed #ea580c; padding-bottom: 10px;}
+      .details { font-size: 20px; text-align: left; line-height: 1.8; color: #000;}
+      .bold { font-weight: 900; display: inline-block; width: 140px; color: #9a3412;}
+      .highlight { background-color: #f97316; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 26px;}
+    </style></head><body>
+    <div class="label-box">
+    <h1>⚠️ QUARANTINE</h1>
+    <h2>${payload.wire_type}</h2><div class="details">
+    <div><span class="bold">Machine:</span> ${payload.line_name}</div>
+    <div><span class="bold">Operator:</span> ${payload.operator_name} (${shiftIcon})</div>
+    <div><span class="bold">Date:</span> ${new Date().toLocaleDateString('en-CA')} ${new Date().toLocaleTimeString('en-CA', {hour12:false, hour:'2-digit', minute:'2-digit'})}</div>
+    <div style="margin-top: 15px;"><span class="bold">Odd Length:</span> <span class="highlight">${payload.length}</span></div>
+    <div style="margin-top: 15px;"><span class="bold">Reason:</span> <span style="font-weight: bold; color: #9a3412;">${payload.reason}</span></div>
+    </div></div><script>setTimeout(() => { window.print(); window.close(); }, 250);</script></body></html>
+  `);
+  printWindow.document.close();
+};
 
-  const [reworkWire, setReworkWire] = useState('');
-  const [reworkInstruction, setReworkInstruction] = useState('');
-  const [reworkTargetQty, setReworkTargetQty] = useState('');
-
-  const [allActiveJobs, setAllActiveJobs] = useState([]);
-  const [activeReworkJobs, setActiveReworkJobs] = useState([]); 
-  const [activeQuarantine, setActiveQuarantine] = useState([]); 
-
-  const [activeOrderTab, setActiveOrderTab] = useState('Production'); 
-  
-  const [completedJobs, setCompletedJobs] = useState([]); 
-  const [allPallets, setAllPallets] = useState([]);
-  
-  const [closedReworkJobs, setClosedReworkJobs] = useState([]);
-  const [reworkHistory, setReworkHistory] = useState([]);
-  const [completedTab, setCompletedTab] = useState(safeLines[0]); 
-  
-  const [dialog, setDialog] = useState(null);
-  const [qReworkModal, setQReworkModal] = useState(null); 
-
-  const [completedPage, setCompletedPage] = useState(1);
-  const COMPLETED_PER_PAGE = 15;
-
-  const showCustomModal = (title, message, type = 'alert') => {
-    return new Promise((resolve) => {
-      setDialog({ title, message, type, onConfirm: () => { setDialog(null); resolve(true); }, onCancel: () => { setDialog(null); resolve(false); } });
-    });
-  };
-
-  const isReelJob = (wireName) => {
-    if (!wireName) return false;
-    const match = wireName.match(/(\d+)m$/i);
-    return match ? parseInt(match[1], 10) > 300 : false;
-  };
-  const isCurrentlyReel = isReelJob(wireType);
-
-  const fetchAdminData = async () => {
-    try {
-      const invRes = await fetch('http://127.0.0.1:8000/api/custom-wires'); 
-      const invData = await invRes.json();
-      setInventory(Array.isArray(invData) ? invData : []);
-      
-      const jobsRes = await fetch('http://127.0.0.1:8000/api/jobs'); 
-      const jobsData = await jobsRes.json();
-      setAllActiveJobs(Array.isArray(jobsData) ? jobsData : []);
-
-      const reworkRes = await fetch('http://127.0.0.1:8000/api/rework-jobs');
-      const reworkData = await reworkRes.json();
-      setActiveReworkJobs(Array.isArray(reworkData) ? reworkData : []);
-
-      const quarRes = await fetch('http://127.0.0.1:8000/api/quarantine');
-      const quarData = await quarRes.json();
-      setActiveQuarantine(Array.isArray(quarData) ? quarData : []);
-      
-      const compRes = await fetch('http://127.0.0.1:8000/api/jobs/closed'); 
-      const compData = await compRes.json();
-      setCompletedJobs(Array.isArray(compData) ? compData : []); 
-      
-      const palletsRes = await fetch('http://127.0.0.1:8000/api/history'); 
-      const palletsData = await palletsRes.json();
-      setAllPallets(Array.isArray(palletsData) ? palletsData : []);
-      
-      const compReworkRes = await fetch('http://127.0.0.1:8000/api/rework-jobs/closed'); 
-      const compReworkData = await compReworkRes.json();
-      setClosedReworkJobs(Array.isArray(compReworkData) ? compReworkData : []); 
-      
-      const reworkHistRes = await fetch('http://127.0.0.1:8000/api/rework-history'); 
-      const reworkHistData = await reworkHistRes.json();
-      setReworkHistory(Array.isArray(reworkHistData) ? reworkHistData : []);
-
-    } catch (error) { 
-      console.error("Could not load admin data:", error); 
-    }
-  };
-
-  useEffect(() => { 
-    fetchAdminData(); 
-    const interval = setInterval(fetchAdminData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => { setCompletedPage(1); }, [completedTab]);
-
-  useEffect(() => {
-    if (!leftColumnRef.current) return;
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (let entry of entries) {
-        setSyncedHeight(`${entry.contentRect.height}px`);
-      }
-    });
-    resizeObserver.observe(leftColumnRef.current);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  const adjustJobTarget = async (job, increment) => {
-    const isReel = job.pallets_needed === 0;
-    const currentTarget = isReel ? job.spools_per_pallet : job.pallets_needed;
-    const newTarget = currentTarget + increment;
-
-    if (newTarget < 1) {
-      await showCustomModal("Minimum Target Reached", "The target cannot be set to 0.", "alert");
-      return;
-    }
-    try {
-      await fetch(`http://127.0.0.1:8000/api/jobs/${job.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_amount: newTarget }) });
-      fetchAdminData();
-    } catch (error) {}
-  };
-
-  const handleTogglePriority = async (jobId) => {
-    try { await fetch(`http://127.0.0.1:8000/api/jobs/${jobId}/priority`, { method: 'PUT' }); fetchAdminData(); } catch (error) {}
-  };
-
-  const handleCancelJob = async (jobId, lineName, wire) => {
-    const proceed = await showCustomModal("Cancel Work Order?", `Are you sure you want to cancel the order for ${wire} on ${lineName}?`, "confirm");
-    if (!proceed) return;
-    try { await fetch(`http://127.0.0.1:8000/api/jobs/${jobId}`, { method: 'DELETE' }); fetchAdminData(); } catch (error) {}
-  };
-
-  const handleCancelReworkJob = async (jobId, wire) => {
-    const proceed = await showCustomModal("Cancel Rework Order?", `Are you sure you want to cancel the rework order for ${wire}?`, "confirm");
-    if (!proceed) return;
-    try { await fetch(`http://127.0.0.1:8000/api/rework-jobs/${jobId}`, { method: 'DELETE' }); fetchAdminData(); } catch (error) {}
-  };
-
-  const handleScrapQuarantine = async (qId) => {
-    const proceed = await showCustomModal("Scrap Wire?", "Are you sure you want to send this wire to the Rework Station to be physically scrapped and processed?", "confirm");
-    if (!proceed) return;
-    try {
-      await fetch(`http://127.0.0.1:8000/api/quarantine/${qId}/scrap`, { method: 'POST' });
-      setActiveOrderTab('Rework'); 
-      fetchAdminData();
-    } catch (error) {}
-  };
-
-  const submitQuarantineToRework = async () => {
-    if (!qReworkModal.instruction || !qReworkModal.target_qty) return;
-    try {
-      await fetch(`http://127.0.0.1:8000/api/quarantine/${qReworkModal.id}/rework`, { 
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ instruction: qReworkModal.instruction, target_qty: Number(qReworkModal.target_qty) }) 
-      });
-      setQReworkModal(null);
-      setActiveOrderTab('Rework');
-      fetchAdminData();
-    } catch (error) {}
-  };
-
-  const handleShipQuarantine = async (qId, length) => {
-    const proceed = await showCustomModal("Ship Odd Length Reel?", `Are you sure you want to pass this ${length} reel directly to Shipping?\n\nIt will be removed from Quarantine and officially logged into the Production Ledger.`, "confirm");
-    if (!proceed) return;
-    try {
-      await fetch(`http://127.0.0.1:8000/api/quarantine/${qId}/ship`, { method: 'POST' });
-      fetchAdminData();
-    } catch (error) {}
-  };
-
-  const handleAddNewWire = async () => {
-    if (!buildLength.trim()) { await showCustomModal("Missing Info", "Please enter a wire length.", "alert"); return; }
-    const parts = [buildSize, buildType];
-    if (buildConductor !== "N/A") parts.push(buildConductor.toUpperCase());
-    if (buildColor !== "None") parts.push(buildColor.toUpperCase());
-    parts.push(buildLength.trim());
-    const finalWireName = parts.join(' ');
-
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/custom-wires', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: finalWireName }) });
-      if (response.ok) {
-        setWireType(finalWireName); setBuildType(TYPE_OPTIONS[0]); setBuildSize(SIZE_OPTIONS[0]); setBuildConductor(CONDUCTOR_OPTIONS[0]); setBuildColor(COLOR_OPTIONS[0]); setBuildLength('');
-        setIsModalOpen(false); fetchAdminData();
-      }
-    } catch (error) {}
-  };
-
-  const handleDeleteWire = async () => {
-    if (!wireType) return;
-    const proceed = await showCustomModal("Delete Wire Type?", `Permanently delete "${wireType}"?`, "confirm");
-    if (!proceed) return;
-    try {
-      const response = await fetch(`http://127.0.0.1:8000/api/custom-wires?name=${encodeURIComponent(wireType)}`, { method: 'DELETE' });
-      if (response.ok) { setWireType(''); fetchAdminData(); }
-    } catch (error) {}
-  };
-
-  const dispatchJob = async () => {
-    if (!wireType) { await showCustomModal("Missing Info", "Please select a wire type.", "alert"); return; }
-    
-    let payload;
-    if (isCurrentlyReel) {
-      if (Number(targetReels) <= 0) { await showCustomModal("Invalid Input", "Target Reels must be > 0.", "alert"); return; }
-      payload = { line_name: adminLine, wire_type: wireType, pallets_needed: 0, spools_per_pallet: Number(targetReels) };
-    } else {
-      if (!palletsNeeded || !spoolsPerPallet) { await showCustomModal("Missing Info", "Please fill out details.", "alert"); return; }
-      payload = { line_name: adminLine, wire_type: wireType, pallets_needed: Number(palletsNeeded), spools_per_pallet: Number(spoolsPerPallet) };
-    }
-
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (response.ok) { 
-        setWireType(''); setPalletsNeeded(''); setSpoolsPerPallet(''); setTargetReels(''); 
-        setActiveOrderTab('Production'); 
-        fetchAdminData(); 
-      }
-    } catch (error) {}
-  };
-
-  const dispatchReworkJob = async () => {
-    if (!reworkWire || !reworkInstruction || !reworkTargetQty) {
-      await showCustomModal("Missing Info", "Please fill out all Rework details.", "alert"); return;
-    }
-    const payload = { source_wire: reworkWire, instruction: reworkInstruction, target_qty: Number(reworkTargetQty) };
-    try {
-      const response = await fetch('http://127.0.0.1:8000/api/rework-jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (response.ok) { 
-        setReworkWire(''); setReworkInstruction(''); setReworkTargetQty(''); 
-        setActiveOrderTab('Rework'); 
-        fetchAdminData(); 
-        await showCustomModal("Success", `Rework job dispatched!`, "alert");
-      }
-    } catch (error) {}
-  };
-
-  const now = new Date();
-  let prodStart = new Date(now.toLocaleString('en-US', { timeZone: 'America/Toronto' }));
-  if (prodStart.getHours() < 7) { prodStart.setDate(prodStart.getDate() - 1); } 
-  prodStart.setHours(7, 0, 0, 0); 
-  const prodStartTime = prodStart.getTime();
-
-  const calcStats = (logs) => {
-    if (!logs || logs.length === 0) return null;
-    const spools = logs.reduce((sum, p) => sum + (p.total_spools || 0), 0);
-    const pallets = logs.length;
-    const times = logs.map(p => new Date(p.timestamp.endsWith('Z') ? p.timestamp : p.timestamp + 'Z').getTime());
-    const minTime = Math.min(...times);
-    const maxTime = Math.max(...times);
-    let activeHours = (maxTime - minTime) / (1000 * 60 * 60);
-    if (activeHours < 1) activeHours = 1; 
-    return { pallets, spools, avgPalletsPerHour: (pallets / activeHours).toFixed(1), avgSpoolsPerHour: Math.round(spools / activeHours) };
-  };
-
-  const liveStats = safeLines.map(line => {
-    const currentShiftLogs = allPallets.filter(p => {
-      if (p.line_name !== line) return false;
-      const pTime = new Date(p.timestamp.endsWith('Z') ? p.timestamp : p.timestamp + 'Z').getTime();
-      return pTime >= prodStartTime;
-    });
-    const dayLogs = currentShiftLogs.filter(p => p.shift === 'Day');
-    const nightLogs = currentShiftLogs.filter(p => p.shift === 'Night');
-    return { line, day: calcStats(dayLogs), night: calcStats(nightLogs), logsCount: currentShiftLogs.length };
-  });
-
-  const isReworkTab = completedTab === 'Rework';
-  const filteredCompletedJobs = isReworkTab 
-    ? closedReworkJobs 
-    : completedJobs.filter(j => j.line_name === completedTab);
-
-  const totalCompletedPages = Math.max(1, Math.ceil(filteredCompletedJobs.length / COMPLETED_PER_PAGE));
-  const displayedCompletedJobs = filteredCompletedJobs.slice((completedPage - 1) * COMPLETED_PER_PAGE, completedPage * COMPLETED_PER_PAGE);
-  const completedTabColor = isReworkTab ? '#9333ea' : '#3b82f6';
-
-  const inputStyle = { width: '100%', padding: '10px 14px', fontSize: '14px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', color: '#0f172a', boxSizing: 'border-box', outline: 'none' };
-  const labelStyle = { display: 'block', fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' };
-  const thStyle = { padding: '8px 12px', fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', borderBottom: '2px solid #94a3b8', borderRight: '1px solid #cbd5e1', textAlign: 'left', backgroundColor: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 };
-  const tdStyle = { padding: '4px 12px', fontSize: '13px', color: '#0f172a', borderBottom: '1px solid #cbd5e1', borderRight: '1px solid #cbd5e1', textAlign: 'left', verticalAlign: 'middle', whiteSpace: 'nowrap', height: '42px' };
-  const stepperBtnStyle = { padding: '2px 8px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', fontWeight: '900', fontSize: '12px', color: '#334155' };
+// =========================================================================
+// SECTION 2: EXCEL LOG BOOK COMPONENT
+// =========================================================================
+function LogBookTable({ activeOrderObj, isHistoryReel }) {
+  if (!activeOrderObj) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', animation: 'fadeIn 0.3s' }}>
-      
-      <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+    <div style={{ backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1000px' }}>
+          <thead>
+            <tr>
+              <th style={STYLES.thExcel}>Date / Time</th>
+              <th style={STYLES.thExcel}>Shift</th>
+              <th style={STYLES.thExcel}>Operator</th>
+              <th style={{...STYLES.thExcel, textAlign: 'center'}}>{isHistoryReel ? 'Reel Num' : 'Pallet Num'}</th>
+              <th style={{...STYLES.thExcel, textAlign: 'center'}}>Qty Req.</th>
+              <th style={{...STYLES.thExcel, textAlign: 'center'}}>{isHistoryReel ? 'Reels Made' : 'Spools Made'}</th>
+              <th style={STYLES.thExcel}>Audit Range</th>
+              <th style={STYLES.thExcel}>Comments / Reason</th>
+              <th style={{...STYLES.thExcel, borderRight: 'none', textAlign: 'center'}}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activeOrderObj.logs.map((row, index) => {
+              const isShort = !isHistoryReel && row.qty_requested > 0 && row.total_spools < row.qty_requested;
+              const isOver = !isHistoryReel && row.qty_requested > 0 && row.total_spools > row.qty_requested;
+              const hasVariance = isShort || isOver;
+              
+              return (
+                <tr key={row.id} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                  <td style={STYLES.tdExcel}><div style={{ fontWeight: '700' }}>{formatDate(row.timestamp)}</div><div style={{ fontSize: '11px', color: '#64748b' }}>{formatClockTime(row.timestamp)}</div></td>
+                  <td style={{...STYLES.tdExcel, fontWeight: '800', color: row.shift === 'Day' ? '#d97706' : '#3b82f6'}}>{row.shift === 'Day' ? '☀️ Day' : '🌙 Night'}</td>
+                  <td style={{...STYLES.tdExcel, fontWeight: '700', color: '#2563eb'}}>{row.operator_name || '—'}</td>
+                  <td style={{...STYLES.tdExcel, fontWeight: '900', color: isHistoryReel ? '#9a3412' : '#334155', textAlign: 'center'}}>{row.pallet_num === 0 ? '—' : row.pallet_num}</td>
+                  <td style={{...STYLES.tdExcel, fontWeight: '700', color: '#475569', textAlign: 'center'}}>{row.qty_requested || '—'}</td>
+                  <td style={{
+                    ...STYLES.tdExcel, fontWeight: '800', 
+                    color: isShort ? '#ef4444' : (isOver ? '#b45309' : '#059669'), 
+                    backgroundColor: isOver ? '#fef08a' : (isShort ? '#fee2e2' : 'transparent'),
+                    textAlign: 'center'
+                  }}>{row.total_spools}</td>
+                  <td style={{...STYLES.tdExcel, fontFamily: 'monospace', color: '#475569', fontWeight: 'bold'}}>{row.audit_start} - {row.audit_end}</td>
+                  <td style={{...STYLES.tdExcel, color: isShort ? '#ef4444' : (isOver ? '#b45309' : '#64748b'), fontStyle: row.comments ? 'normal' : 'italic', fontWeight: hasVariance ? 'bold' : 'normal'}}>{row.comments || 'none'}</td>
+                  <td style={{...STYLES.tdExcel, borderRight: 'none', textAlign: 'center'}}><button onClick={() => printLabel(row, isHistoryReel)} style={{ padding: '6px 12px', backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>🖨️ Print Tag</button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: '16px 32px', backgroundColor: '#f8fafc', borderTop: '2px solid #cbd5e1', textAlign: 'right', fontSize: '14px', fontWeight: '700', color: '#334155', flexShrink: 0 }}>
+        Run Total: <span style={{ color: isHistoryReel ? '#9a3412' : '#059669', marginLeft: '8px', fontSize: '16px' }}>{isHistoryReel ? `${activeOrderObj.logs.reduce((sum, log) => sum + log.total_spools, 0)} Reels` : `${activeOrderObj.logs.length} Pallets`}</span>
+      </div>
+    </div>
+  );
+}
+
+// =========================================================================
+// SECTION 3: SMART VARIANCE MODAL
+// =========================================================================
+function ActionModal({ config, onClose }) {
+  const [varianceReason, setVarianceReason] = useState('');
+  const [reconNotes, setReconNotes] = useState('');
+
+  // Quarantine specific states
+  const [qLength, setQLength] = useState('');
+  const [qReason, setQReason] = useState('');
+  const [qStartupReason, setQStartupReason] = useState(''); 
+  const [qOtherReason, setQOtherReason] = useState('');
+  const [qOtherStartupReason, setQOtherStartupReason] = useState('');
+  const [qOddLengthReason, setQOddLengthReason] = useState(''); 
+
+  useEffect(() => {
+    if (config?.type === 'variance') { setVarianceReason(''); setReconNotes(''); }
+    if (config?.type === 'quarantine') { 
+      setQLength(''); setQReason(''); setQStartupReason(''); 
+      setQOtherReason(''); setQOtherStartupReason(''); setQOddLengthReason('');
+    }
+  }, [config]);
+
+  if (!config) return null;
+
+  const targetQty = config.extraData?.target || 0;
+  const labelsPulled = config.extraData?.span || 0;
+  const isShort = labelsPulled < targetQty;
+  const isOver = labelsPulled > targetQty;
+  const labelDiff = Math.abs(labelsPulled - targetQty);
+
+  // Parse standard length for comparison (e.g., extract 150 from "150m")
+  const qTargetLength = config.extraData?.targetLength || 0;
+  // Automatically strip out any non-numbers just in case, but input type="number" handles most of it
+  const inputLengthNum = parseInt(String(qLength).replace(/\D/g, ''), 10) || 0;
+  const lengthDiff = inputLengthNum - qTargetLength;
+  const hasInput = inputLengthNum > 0;
+
+  let calculatedSpools = labelsPulled; 
+  let summaryText = "";
+
+  if (isOver) {
+    if (varianceReason === 'Extra Production') { calculatedSpools = labelsPulled; summaryText = `✓ Logging ${labelDiff} extra spools. Target was ${targetQty}.`; } 
+    else if (varianceReason === 'Damaged Labels') { calculatedSpools = targetQty; summaryText = `✓ Threw away ${labelDiff} damaged labels. Spools made remains locked to ${targetQty}.`; }
+  } else if (isShort) {
+    if (varianceReason === 'Missed Labels') { calculatedSpools = targetQty; summaryText = `✓ Spools made locked to ${targetQty}. Assuming ${labelDiff} labels went missing.`; } 
+    else if (varianceReason) { calculatedSpools = labelsPulled; summaryText = `✓ Short Run recorded. Logging ${calculatedSpools} physical spools made.`; }
+  }
+
+  // --- VALIDATION FLAGS ---
+  let isQInvalid = false;
+  if (config.type === 'quarantine') {
+    if (!qLength.trim() || !qReason) isQInvalid = true;
+    if (qReason === 'Other' && !qOtherReason.trim()) isQInvalid = true;
+    
+    if (qReason === 'ODD Length') {
+      if (!qOddLengthReason) isQInvalid = true;
+      // VALIDATION: Reel Transfers must strictly be shorter than the target length
+      if (qOddLengthReason === 'Reel Transfer' && qTargetLength > 0 && inputLengthNum >= qTargetLength) {
+        isQInvalid = true;
+      }
+      // VALIDATION: Extra Lengths must strictly be longer than the target length
+      if (qOddLengthReason === 'Extra Length' && qTargetLength > 0 && inputLengthNum <= qTargetLength) {
+        isQInvalid = true;
+      }
+    }
+    
+    if (qReason === 'Startup') {
+      if (!qStartupReason) isQInvalid = true;
+      if (qStartupReason === 'Other' && !qOtherStartupReason.trim()) isQInvalid = true;
+    }
+  }
+  
+  const isVarianceInvalid = config.type === 'variance' && !varianceReason;
+  const isConfirmDisabled = isQInvalid || isVarianceInvalid;
+
+  const handleConfirm = () => {
+    if (config.type === 'quarantine') {
+       if (isQInvalid) return;
+
+       let finalReason = qReason;
+       if (qReason === 'Other') finalReason = qOtherReason.trim();
+       if (qReason === 'ODD Length') finalReason = `ODD Length - ${qOddLengthReason}`;
+       if (qReason === 'Startup') {
+         const subReason = qStartupReason === 'Other' ? qOtherStartupReason.trim() : qStartupReason;
+         finalReason = `Startup - ${subReason}`;
+       }
+
+       config.resolve({ length: qLength, reason: finalReason });
+       
+    } else if (config.type === 'variance') {
+      if (isVarianceInvalid) return; 
+      let finalComment = varianceReason;
+      if (isOver) {
+        if (varianceReason === 'Damaged Labels') finalComment += ` (${labelDiff} labels thrown away)`;
+        if (varianceReason === 'Extra Production') finalComment += ` (${labelDiff} extra spools made)`;
+      } else if (isShort) {
+        if (varianceReason === 'Missed Labels') finalComment += ` (${labelDiff} labels missing, spools met target)`;
+        else finalComment += ` (Short by ${labelDiff} spools)`;
+      }
+      if (reconNotes.trim()) finalComment += ` | Notes: ${reconNotes.trim()}`;
+      config.resolve({ spoolsMade: calculatedSpools, comments: finalComment }); 
+    } else { config.resolve(true); }
+    onClose();
+  };
+
+  const btnBgColor = isConfirmDisabled ? '#94a3b8' : (config.type === 'alert' ? '#3b82f6' : (config.type === 'quarantine' ? '#ea580c' : (config.type === 'variance' ? '#10b981' : '#ef4444')));
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(4px)' }}>
+      <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', width: '100%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'fadeIn 0.2s', textAlign: 'center' }}>
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>{config.type === 'alert' ? '🛑' : (config.type === 'variance' ? '📋' : (config.type === 'quarantine' ? '✂️' : '⚠️'))}</div>
+        <h3 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '22px', fontWeight: '700' }}>{config.title}</h3>
+        <p style={{ margin: '0 0 28px 0', color: '#475569', fontSize: '16px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{config.message}</p>
         
-        {/* --- COLUMN 1 --- */}
-        <div ref={leftColumnRef} style={{ flex: '0 0 380px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          <div style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '2px solid #f1f5f9', paddingBottom: '12px', marginBottom: '20px' }}>
-               <div style={{ fontSize: '20px' }}>⚙️</div>
-               <h2 style={{ margin: 0, color: '#0f172a', fontWeight: '800', fontSize: '18px' }}>Job Dispatch Hub</h2>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div><label style={labelStyle}>Target Machine</label><select value={adminLine} onChange={(e) => setAdminLine(e.target.value)} style={inputStyle}>{safeLines.map(l => <option key={l}>{l}</option>)}</select></div>
-              <div>
-                  <label style={labelStyle}>Wire Type / SKU</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <select value={wireType} onChange={(e) => setWireType(e.target.value)} style={{ flex: 1, ...inputStyle }}><option value="">-- Select Wire Type --</option>{inventory.map(wire => <option key={wire} value={wire}>{wire}</option>)}</select>
-                    <button onClick={() => setIsModalOpen(true)} title="Build Custom Wire" style={{ padding: '0 12px', backgroundColor: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer' }}>+</button>
-                    <button onClick={handleDeleteWire} title="Delete Selected Wire" style={{ padding: '0 12px', backgroundColor: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '16px', cursor: 'pointer' }}>🗑️</button>
-                  </div>
-              </div>
-              {isCurrentlyReel ? (
-                <div style={{ padding: '12px', backgroundColor: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px' }}>
-                    <label style={{...labelStyle, color: '#c2410c'}}>Total Master Reels Needed</label>
-                    <input type="number" value={targetReels} onChange={(e) => setTargetReels(e.target.value)} placeholder="e.g. 15" style={inputStyle} />
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '16px' }}>
-                  <div style={{ flex: 1 }}><label style={labelStyle}>Total Pallets</label><input type="number" value={palletsNeeded} onChange={(e) => setPalletsNeeded(e.target.value)} placeholder="e.g. 5" style={inputStyle} /></div>
-                  <div style={{ flex: 1 }}><label style={labelStyle}>Spools / Pallet</label><input type="number" value={spoolsPerPallet} onChange={(e) => setSpoolsPerPallet(e.target.value)} placeholder="e.g. 100" style={inputStyle} /></div>
-                </div>
-              )}
-              <button onClick={dispatchJob} style={{ marginTop: '4px', padding: '14px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '800', textTransform: 'uppercase', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.3)', transition: '0.2s' }}>DISPATCH JOB</button>
-            </div>
-          </div>
+        {config.type === 'quarantine' && (
+          <div style={{ textAlign: 'left', marginBottom: '28px' }}>
+            <label style={STYLES.label}>Estimated Length / Size:</label>
+            {/* CHANGED TO TYPE="NUMBER" SO ALPHABETS ARE BLOCKED */}
+            <input 
+              type="number" 
+              value={qLength} 
+              onChange={e => setQLength(e.target.value)} 
+              style={{...STYLES.input, marginBottom: '16px'}} 
+              placeholder="e.g. 850" 
+              autoFocus 
+              min="1"
+            />
+            
+            <label style={STYLES.label}>Reason for Defect / Quarantine:</label>
+            <select 
+              value={qReason} 
+              onChange={e => { setQReason(e.target.value); setQStartupReason(''); setQOtherReason(''); setQOddLengthReason(''); }} 
+              style={{...STYLES.input, marginBottom: (qReason === 'Startup' || qReason === 'Other' || qReason === 'ODD Length') ? '16px' : '0'}}
+            >
+              <option value="">-- Select Reason --</option>
+              <option value="ODD Length">ODD Length</option>
+              <option value="Startup">Startup</option>
+              <option value="Red Light">Red Light</option>
+              <option value="Lump">Lump</option>
+              <option value="Rough Wire">Rough Wire</option>
+              <option value="Bad Jacket">Bad Jacket</option>
+              <option value="Bad Color">Bad Color</option>
+              <option value="No Print">No Print</option>
+              <option value="Bad Print">Bad Print</option>
+              <option value="Other">Other...</option>
+            </select>
 
-          <div style={{ backgroundColor: '#ffffff', padding: '24px', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', borderTop: '5px solid #9333ea' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '2px solid #f3e8ff', paddingBottom: '12px', marginBottom: '20px' }}>
-               <div style={{ fontSize: '20px' }}>✂️</div>
-               <h2 style={{ margin: 0, color: '#581c87', fontWeight: '800', fontSize: '18px' }}>Rework Dispatch</h2>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                  <label style={{...labelStyle, color: '#6b21a8'}}>Original Wire Source</label>
-                  <select value={reworkWire} onChange={(e) => setReworkWire(e.target.value)} style={{ ...inputStyle, border: '1px solid #d8b4fe' }}>
-                    <option value="">-- Select Wire Type --</option>
-                    {inventory.map(wire => <option key={wire} value={wire}>{wire}</option>)}
-                  </select>
-              </div>
-              <div>
-                  <label style={{...labelStyle, color: '#6b21a8'}}>Instructions</label>
-                  <input type="text" value={reworkInstruction} onChange={(e) => setReworkInstruction(e.target.value)} placeholder="e.g. Cut 150m spool into 2 x 75m" style={{ ...inputStyle, border: '1px solid #d8b4fe' }} />
-              </div>
-              <div>
-                  <label style={{...labelStyle, color: '#6b21a8'}}>Target Goal (Qty)</label>
-                  <input type="number" value={reworkTargetQty} onChange={(e) => setReworkTargetQty(e.target.value)} placeholder="e.g. 5" style={{ ...inputStyle, border: '1px solid #d8b4fe' }} />
-              </div>
-              <button onClick={dispatchReworkJob} style={{ marginTop: '4px', padding: '14px', backgroundColor: '#9333ea', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '800', textTransform: 'uppercase', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(147, 51, 234, 0.3)', transition: '0.2s' }}>DISPATCH REWORK</button>
-            </div>
-          </div>
-        </div>
+            {qReason === 'ODD Length' && (
+              <div style={{ animation: 'fadeIn 0.2s' }}>
+                <label style={{...STYLES.label, color: '#ea580c'}}>Odd Length Detail:</label>
+                <select 
+                  value={qOddLengthReason} 
+                  onChange={e => setQOddLengthReason(e.target.value)} 
+                  style={{...STYLES.input, border: '2px solid #fdba74', marginBottom: qOddLengthReason ? '16px' : '0'}}
+                >
+                  <option value="">-- Select Detail --</option>
+                  <option value="Reel Transfer">Reel Transfer</option>
+                  <option value="Extra Length">Extra Length</option>
+                </select>
 
-        {/* --- COLUMN 2: LIVE AVERAGES --- */}
-        <div style={{ flex: '0 0 380px', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', display: 'flex', flexDirection: 'column', height: syncedHeight }}>
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0', flexShrink: 0 }}>
-            <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span>📊</span> Current Production Averages
-            </h3>
-          </div>
-          
-          <div className="hide-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {liveStats.map(stat => (
-              <div key={stat.line} style={{ backgroundColor: '#ffffff', borderRadius: '8px', padding: '16px', borderTop: stat.logsCount > 0 ? '4px solid #10b981' : '4px solid #cbd5e1', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', borderLeft: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                <h3 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '14px', fontWeight: '800' }}>{stat.line}</h3>
-                {stat.logsCount === 0 ? (
-                  <div style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '12px' }}>Awaiting data for today...</div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '10px', fontWeight: '800', color: '#f59e0b', marginBottom: '6px' }}>☀️ DAY SHIFT</div>
-                      {stat.day ? (
-                        <>
-                          <div style={{ fontSize: '16px', fontWeight: '900', color: '#0f172a' }}>{stat.day.pallets} <span style={{fontSize:'10px', fontWeight:'600', color:'#64748b'}}>Pallets</span></div>
-                          <div style={{ fontSize: '11px', color: '#475569', marginBottom: '8px' }}>({stat.day.spools} Spools)</div>
-                          <div style={{ paddingTop: '6px', borderTop: '1px dashed #cbd5e1' }}>
-                            <div style={{ fontSize: '9px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>Avg Pace</div>
-                            <div style={{ fontSize: '13px', fontWeight: '800', color: '#059669' }}>{stat.day.avgPalletsPerHour} <span style={{fontSize:'9px', color: '#64748b'}}>Pallets/hr</span></div>
-                          </div>
-                        </>
-                      ) : (<div style={{ fontSize: '10px', color: '#94a3b8', fontStyle: 'italic' }}>No data</div>)}
-                    </div>
-                    <div style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' }}>
-                      <div style={{ fontSize: '10px', fontWeight: '800', color: '#38bdf8', marginBottom: '6px' }}>🌙 NIGHT SHIFT</div>
-                      {stat.night ? (
-                        <>
-                          <div style={{ fontSize: '16px', fontWeight: '900', color: '#f8fafc' }}>{stat.night.pallets} <span style={{fontSize:'10px', fontWeight:'600', color:'#94a3b8'}}>Pallets</span></div>
-                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '8px' }}>({stat.night.spools} Spools)</div>
-                          <div style={{ paddingTop: '6px', borderTop: '1px dashed #334155' }}>
-                            <div style={{ fontSize: '9px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '2px' }}>Avg Pace</div>
-                            <div style={{ fontSize: '13px', fontWeight: '800', color: '#34d399' }}>{stat.night.avgPalletsPerHour} <span style={{fontSize:'9px', color: '#94a3b8'}}>Pallets/hr</span></div>
-                          </div>
-                        </>
-                      ) : (<div style={{ fontSize: '10px', color: '#475569', fontStyle: 'italic' }}>No data</div>)}
-                    </div>
-                  </div>
+                {/* DYNAMIC VALIDATION: REEL TRANSFER */}
+                {qOddLengthReason === 'Reel Transfer' && qTargetLength > 0 && (
+                   <div style={{ padding: '12px', backgroundColor: (!hasInput || inputLengthNum >= qTargetLength) ? '#fef2f2' : '#f0fdf4', border: `1px dashed ${(!hasInput || inputLengthNum >= qTargetLength) ? '#f87171' : '#86efac'}`, borderRadius: '8px', fontSize: '14px', color: (!hasInput || inputLengthNum >= qTargetLength) ? '#b91c1c' : '#166534', fontWeight: 'bold' }}>
+                     Target Length: {qTargetLength}m <br/>
+                     Entered Length: {inputLengthNum}m <br/>
+                     {!hasInput ? "⚠️ Please enter a length above." : (inputLengthNum >= qTargetLength ? "⚠️ Error: Reel transfers must be shorter than target." : `✓ Valid short reel transfer (-${Math.abs(lengthDiff)}m)`)}
+                   </div>
+                )}
+
+                {/* DYNAMIC VALIDATION: EXTRA LENGTH */}
+                {qOddLengthReason === 'Extra Length' && qTargetLength > 0 && (
+                   <div style={{ padding: '12px', backgroundColor: (!hasInput || inputLengthNum <= qTargetLength) ? '#fef2f2' : '#f0fdf4', border: `1px dashed ${(!hasInput || inputLengthNum <= qTargetLength) ? '#f87171' : '#86efac'}`, borderRadius: '8px', fontSize: '14px', color: (!hasInput || inputLengthNum <= qTargetLength) ? '#b91c1c' : '#166534', fontWeight: 'bold' }}>
+                     Target Length: {qTargetLength}m <br/>
+                     Entered Length: {inputLengthNum}m <br/>
+                     {!hasInput ? "⚠️ Please enter a length above." : (inputLengthNum <= qTargetLength ? "⚠️ Error: Extra length must be greater than target." : `✓ Valid extra length (+${lengthDiff}m)`)}
+                   </div>
                 )}
               </div>
-            ))}
+            )}
+
+            {qReason === 'Other' && (
+              <input 
+                type="text" 
+                value={qOtherReason} 
+                onChange={e => setQOtherReason(e.target.value)} 
+                style={{...STYLES.input, animation: 'fadeIn 0.2s'}} 
+                placeholder="Please specify reason..." 
+              />
+            )}
+
+            {qReason === 'Startup' && (
+              <div style={{ animation: 'fadeIn 0.2s' }}>
+                <label style={{...STYLES.label, color: '#ea580c'}}>Startup Issue Detail:</label>
+                <select 
+                  value={qStartupReason} 
+                  onChange={e => { setQStartupReason(e.target.value); setQOtherStartupReason(''); }} 
+                  style={{...STYLES.input, border: '2px solid #fdba74', marginBottom: qStartupReason === 'Other' ? '16px' : '0'}}
+                >
+                  <option value="">-- Select Startup Issue --</option>
+                  <option value="Power Flicker">Power Flicker</option>
+                  <option value="Full Clean Out">Full Clean Out</option>
+                  <option value="PLC/Drive Error">PLC/Drive Error</option>
+                  <option value="Run Out of Compound">Run Out of Compound</option>
+                  <option value="Bad Spooling">Bad Spooling</option>
+                  <option value="Giveup Broke">Giveup Broke</option>
+                  <option value="Other">Other...</option>
+                </select>
+
+                {qStartupReason === 'Other' && (
+                   <input 
+                     type="text" 
+                     value={qOtherStartupReason} 
+                     onChange={e => setQOtherStartupReason(e.target.value)} 
+                     style={{...STYLES.input, border: '2px solid #fdba74', animation: 'fadeIn 0.2s'}} 
+                     placeholder="Please specify startup issue..." 
+                   />
+                )}
+              </div>
+            )}
           </div>
+        )}
+
+        {config.type === 'variance' && (
+          <div style={{ textAlign: 'left', marginBottom: '28px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', maxHeight: '60vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', paddingBottom: '16px', borderBottom: '2px solid #e2e8f0' }}>
+              <div><strong>Target:</strong> <span style={{color: '#1e40af'}}>{targetQty} spools</span></div>
+              <div><strong>Labels Scanned:</strong> <span style={{color: isShort ? '#b45309' : '#991b1b'}}>{labelsPulled} labels</span></div>
+            </div>
+            <label style={STYLES.label}>Select Reason for {isShort ? 'Shortage' : 'Overrun'}:</label>
+            <select value={varianceReason} onChange={e => setVarianceReason(e.target.value)} style={{...STYLES.input, marginBottom: '16px', border: '2px solid #3b82f6', fontWeight: 'bold'}}>
+              <option value="">-- Choose Reason --</option>
+              {isShort && (
+                <>
+                  <option value="End of Run">End of Run</option>
+                  <option value="Urgently needed at shipping">Urgently needed at shipping</option>
+                  <option value="Product changeover">Product changeover</option>
+                  <option value="Machine broke">Machine broke</option>
+                  <option value="Missed Labels">Missed Labels</option>
+                </>
+              )}
+              {isOver && (
+                <>
+                  <option value="Extra Production">Extra Production</option>
+                  <option value="Damaged Labels">Damaged Labels</option>
+                </>
+              )}
+            </select>
+            {varianceReason && (
+              <div style={{ padding: '16px', backgroundColor: '#f0fdf4', border: '1px dashed #86efac', borderRadius: '8px', marginBottom: '16px', animation: 'fadeIn 0.2s' }}>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#166534', textAlign: 'center' }}>{summaryText}</div>
+              </div>
+            )}
+            <label style={STYLES.label}>Additional Notes (Optional):</label>
+            <input type="text" value={reconNotes} onChange={e => setReconNotes(e.target.value)} style={STYLES.input} placeholder="Type explanation here..." />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          {(config.type === 'confirm' || config.type === 'variance' || config.type === 'quarantine') && (
+            <button onClick={() => { config.resolve(false); onClose(); }} style={{ padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', flex: 1, transition: '0.2s' }}>Cancel</button>
+          )}
+          <button 
+            disabled={isConfirmDisabled}
+            onClick={handleConfirm} 
+            style={{ padding: '12px 20px', backgroundColor: btnBgColor, color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: isConfirmDisabled ? 'not-allowed' : 'pointer', flex: 1, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', transition: '0.2s' }}>
+            {config.type === 'alert' ? 'Understood' : (config.type === 'variance' ? 'Save Record' : (config.type === 'quarantine' ? 'Print Tag' : 'Yes, Proceed'))}
+          </button>
         </div>
-
-        {/* --- COLUMN 3: TABBED ACTIVE WORK ORDERS --- */}
-        <div style={{ flex: '1 1 500px', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', display: 'flex', flexDirection: 'column', height: syncedHeight }}>
-          
-          <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0', flexShrink: 0 }}>
-            <button 
-              onClick={() => setActiveOrderTab('Production')} 
-              style={{ flex: 1, padding: '18px 16px', fontSize: '14px', fontWeight: '800', cursor: 'pointer', border: 'none', borderBottom: activeOrderTab === 'Production' ? '3px solid #3b82f6' : '3px solid transparent', backgroundColor: activeOrderTab === 'Production' ? '#ffffff' : 'transparent', color: activeOrderTab === 'Production' ? '#1e3a8a' : '#64748b', transition: '0.2s', borderRadius: '12px 0 0 0' }}>
-              🏭 Production Orders
-            </button>
-            <button 
-              onClick={() => setActiveOrderTab('Rework')} 
-              style={{ flex: 1, padding: '18px 16px', fontSize: '14px', fontWeight: '800', cursor: 'pointer', border: 'none', borderBottom: activeOrderTab === 'Rework' ? '3px solid #9333ea' : '3px solid transparent', backgroundColor: activeOrderTab === 'Rework' ? '#ffffff' : 'transparent', color: activeOrderTab === 'Rework' ? '#581c87' : '#64748b', transition: '0.2s', borderRadius: '0 0 0 0' }}>
-              ✂️ Rework Orders
-            </button>
-            <button 
-              onClick={() => setActiveOrderTab('Quarantine')} 
-              style={{ flex: 1, padding: '18px 16px', fontSize: '14px', fontWeight: '800', cursor: 'pointer', border: 'none', borderBottom: activeOrderTab === 'Quarantine' ? '3px solid #ea580c' : '3px solid transparent', backgroundColor: activeOrderTab === 'Quarantine' ? '#ffffff' : 'transparent', color: activeOrderTab === 'Quarantine' ? '#c2410c' : '#64748b', transition: '0.2s', borderRadius: '0 12px 0 0' }}>
-              ⚠️ Quarantine {activeQuarantine.length > 0 && <span style={{backgroundColor: '#ea580c', color: 'white', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', marginLeft: '6px'}}>{activeQuarantine.length}</span>}
-            </button>
-          </div>
-          
-          <div className="hide-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
-            
-            {/* TAB: PRODUCTION */}
-            {activeOrderTab === 'Production' && (
-              allActiveJobs.length === 0 ? <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8', fontWeight: '500' }}>No active production jobs.</div> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '650px' }}>
-                  <thead>
-                    <tr>
-                      <th style={{...thStyle, textAlign: 'center', width: '110px'}}>Status</th>
-                      <th style={thStyle}>Machine</th>
-                      <th style={thStyle}>Wire Product</th>
-                      <th style={thStyle}>Target</th>
-                      <th style={{...thStyle, textAlign: 'right'}}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allActiveJobs.map((job, index) => {
-                      const isReel = job.pallets_needed === 0;
-                      const jobLogs = allPallets.filter(p => p.job_id === job.id);
-                      const inProgress = jobLogs.length > 0;
-                      
-                      return (
-                        <tr key={job.id} style={{ backgroundColor: job.priority === 1 ? '#fefce8' : (index % 2 === 0 ? '#ffffff' : '#f8fafc'), transition: '0.2s' }}>
-                          <td style={{...tdStyle, textAlign: 'center'}}>
-                             {inProgress ? (
-                               <span style={{ backgroundColor: '#dcfce7', color: '#059669', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', letterSpacing: '0.5px' }}>⏳ IN PROGRESS</span>
-                             ) : (
-                               <span style={{ backgroundColor: '#f1f5f9', color: '#64748b', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', letterSpacing: '0.5px' }}>⏸️ QUEUED</span>
-                             )}
-                          </td>
-                          <td style={{...tdStyle, fontWeight: '800', color: '#1e3a8a'}}>{job.line_name}</td>
-                          <td style={{...tdStyle, fontWeight: '700', color: '#0f172a'}}>
-                            {job.priority === 1 && <span style={{backgroundColor: '#fef08a', color: '#b45309', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', marginRight: '8px', fontWeight: '800', letterSpacing: '0.5px'}}>⭐ URGENT</span>}
-                            {job.wire_type}
-                          </td>
-                          <td style={{...tdStyle, color: isReel ? '#ea580c' : '#334155'}}>
-                            {isReel ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 'bold' }}>
-                                <span>{job.spools_per_pallet} Reels</span>
-                                <div style={{display:'flex', gap:'4px'}}>
-                                  <button onClick={() => adjustJobTarget(job, -1)} style={stepperBtnStyle}>-</button>
-                                  <button onClick={() => adjustJobTarget(job, 1)} style={stepperBtnStyle}>+</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span>{job.pallets_needed} Pallets <span style={{fontSize:'11px', color:'#64748b'}}>({job.spools_per_pallet}/pl)</span></span>
-                                <div style={{display:'flex', gap:'4px'}}>
-                                  <button onClick={() => adjustJobTarget(job, -1)} style={stepperBtnStyle}>-</button>
-                                  <button onClick={() => adjustJobTarget(job, 1)} style={stepperBtnStyle}>+</button>
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                          <td style={{...tdStyle, textAlign: 'right'}}>
-                            <button onClick={() => handleTogglePriority(job.id)} style={{ padding: '6px 10px', backgroundColor: job.priority === 1 ? '#fef08a' : '#f8fafc', color: job.priority === 1 ? '#b45309' : '#64748b', border: `1px solid ${job.priority === 1 ? '#fde047' : '#cbd5e1'}`, borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginRight: '6px', transition: '0.2s' }}>
-                              {job.priority === 1 ? 'Demote' : '⭐ Priority'}
-                            </button>
-                            <button onClick={() => handleCancelJob(job.id, job.line_name, job.wire_type)} style={{ padding: '6px 10px', backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', transition: '0.2s' }}>Cancel</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )
-            )}
-
-            {/* TAB: REWORK */}
-            {activeOrderTab === 'Rework' && (
-              activeReworkJobs.length === 0 ? <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8', fontWeight: '500' }}>No active rework jobs currently dispatched.</div> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
-                  <thead>
-                    <tr>
-                      <th style={{...thStyle, textAlign: 'center', width: '110px'}}>Status</th>
-                      <th style={thStyle}>Original Wire</th>
-                      <th style={thStyle}>Instructions</th>
-                      <th style={{...thStyle, textAlign: 'center'}}>Target</th>
-                      <th style={{...thStyle, textAlign: 'right'}}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeReworkJobs.map((job, index) => {
-                      const rLogs = reworkHistory.filter(p => p.job_id === job.id);
-                      const inProgress = rLogs.length > 0;
-                      
-                      return (
-                      <tr key={job.id} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#faf5ff', transition: '0.2s' }}>
-                        <td style={{...tdStyle, textAlign: 'center'}}>
-                             {inProgress ? (
-                               <span style={{ backgroundColor: '#f3e8ff', color: '#7e22ce', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', letterSpacing: '0.5px' }}>⏳ IN PROGRESS</span>
-                             ) : (
-                               <span style={{ backgroundColor: '#f1f5f9', color: '#64748b', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', letterSpacing: '0.5px' }}>⏸️ QUEUED</span>
-                             )}
-                        </td>
-                        <td style={{...tdStyle, fontWeight: '800', color: '#581c87'}}>{job.source_wire}</td>
-                        <td style={{...tdStyle, fontWeight: '600', color: '#475569'}}>{job.instruction}</td>
-                        <td style={{...tdStyle, fontWeight: '900', color: '#d97706', textAlign: 'center'}}>{job.target_qty}</td>
-                        <td style={{...tdStyle, textAlign: 'right'}}>
-                          <button onClick={() => handleCancelReworkJob(job.id, job.source_wire)} style={{ padding: '6px 10px', backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', transition: '0.2s' }}>Cancel</button>
-                        </td>
-                      </tr>
-                    )})}
-                  </tbody>
-                </table>
-              )
-            )}
-
-            {/* TAB: QUARANTINE */}
-            {activeOrderTab === 'Quarantine' && (
-              activeQuarantine.length === 0 ? <div style={{ padding: '60px 40px', textAlign: 'center', color: '#94a3b8', fontWeight: '500' }}>No items in quarantine triage!</div> : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>Machine / Operator</th>
-                      <th style={thStyle}>Odd Wire Logged</th>
-                      <th style={thStyle}>Reason</th>
-                      <th style={{...thStyle, textAlign: 'right', minWidth: '260px'}}>Admin Decision</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeQuarantine.map((q, index) => (
-                      <tr key={q.id} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#fff7ed', transition: '0.2s' }}>
-                        <td style={tdStyle}>
-                          <div style={{fontWeight: '800', color: '#1e3a8a'}}>{q.line_name}</div>
-                          <div style={{fontSize: '11px', color: '#64748b'}}>{q.operator_name}</div>
-                        </td>
-                        <td style={tdStyle}>
-                          <div style={{fontWeight: '800', color: '#9a3412'}}>{q.wire_type}</div>
-                          <div style={{fontSize: '11px', color: '#ea580c', fontWeight: 'bold'}}>Est. Length: {q.length}</div>
-                        </td>
-                        <td style={{...tdStyle, fontWeight: '600', color: '#475569'}}>{q.reason}</td>
-                        <td style={{...tdStyle, textAlign: 'right'}}>
-                          {/* Conditionally show Ship button to prevent crashes if reason is null! */}
-                          {(q.reason || '').includes('ODD Length') && (
-                             <button onClick={() => handleShipQuarantine(q.id, q.length)} style={{ padding: '6px 10px', backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #86efac', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginRight: '6px', transition: '0.2s' }}>🚢 Ship</button>
-                          )}
-                          <button onClick={() => handleScrapQuarantine(q.id)} style={{ padding: '6px 10px', backgroundColor: '#fee2e2', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginRight: '6px', transition: '0.2s' }}>🗑️ Scrap It</button>
-                          <button onClick={() => setQReworkModal({ id: q.id, instruction: '', target_qty: '' })} style={{ padding: '6px 10px', backgroundColor: '#f3e8ff', color: '#7e22ce', border: '1px solid #d8b4fe', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', transition: '0.2s' }}>✂️ Rework</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
-          </div>
-        </div>
-
       </div>
+    </div>
+  );
+}
 
-      {/* ========================================================================= */}
-      {/* BOTTOM SECTION: FIXED HEIGHT COMPLETED JOBS DASHBOARD                     */}
-      {/* ========================================================================= */}
-      <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', display: 'flex', flexDirection: 'column' }}>
-        
-        <div style={{ backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0', flexShrink: 0 }}>
-          <div style={{ padding: '20px 24px 12px 24px' }}>
-            <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '20px' }}>✅</span> Completed Job Review
-            </h3>
+// =========================================================================
+// SECTION 4: MAIN OPERATOR PANEL (Data Fetching & Layout)
+// =========================================================================
+export default function OperatorPanel({ lines }) {
+  const [selectedLine, setSelectedLine] = useState(null);
+  const [operatorName, setOperatorName] = useState('');
+  const [comments, setComments] = useState('');
+  const [auditStart, setAuditStart] = useState('');
+  const [auditEnd, setAuditEnd] = useState('');
+  
+  const [productionHistory, setProductionHistory] = useState([]);
+  const [activeJobs, setActiveJobs] = useState([]); 
+  const [selectedJobId, setSelectedJobId] = useState(''); 
+  
+  const [shiftNotes, setShiftNotes] = useState([]); 
+  const [newNoteText, setNewNoteText] = useState(''); 
+
+  const [activeWireTab, setActiveWireTab] = useState('');
+  const [activeOrderTab, setActiveOrderTab] = useState('');
+  const [dialogConfig, setDialogConfig] = useState(null);
+
+  const showCustomModal = (title, message, type = 'alert', extraData = null) => {
+    return new Promise((resolve) => { setDialogConfig({ title, message, type, extraData, resolve }); });
+  };
+
+  const fetchData = async (line) => {
+    try {
+      const historyRes = await fetch(`https://pti-cables-system.onrender.com/api/history/${line}`);
+      if (historyRes.ok) setProductionHistory(await historyRes.json());
+
+      const jobRes = await fetch(`https://pti-cables-system.onrender.com/api/jobs/${line}`);
+      if (jobRes.ok) {
+        const jobData = await jobRes.json();
+        setActiveJobs(jobData);
+        if (jobData.length > 0 && !selectedJobId) setSelectedJobId(jobData[0].id.toString());
+        else if (jobData.length === 0) setSelectedJobId('');
+      }
+      
+      const notesRes = await fetch(`https://pti-cables-system.onrender.com/api/notes/${line}`);
+      if (notesRes.ok) {
+        const notesData = await notesRes.json();
+        setShiftNotes(Array.isArray(notesData) ? notesData : []); 
+      } else {
+        setShiftNotes([]);
+      }
+    } catch (error) { 
+      console.error("Fetch Error:", error); 
+    }
+  };
+
+  useEffect(() => { if (selectedLine) { setActiveWireTab(''); setActiveOrderTab(''); fetchData(selectedLine); } }, [selectedLine]);
+
+  const historyWireTypes = [...new Set(productionHistory.map(log => log.wire_type))].sort();
+  const logsForActiveWire = productionHistory.filter(log => log.wire_type === activeWireTab);
+  const orderGroupsForWire = logsForActiveWire.reduce((groups, log) => {
+    const key = log.job_id ? `order_${log.job_id}` : 'legacy';
+    if (!groups[key]) groups[key] = { id: key, realId: log.job_id, logs: [] };
+    groups[key].logs.push(log);
+    return groups;
+  }, {});
+  const orderTabs = Object.values(orderGroupsForWire).sort((a, b) => new Date(b.logs[0].timestamp) - new Date(a.logs[0].timestamp));
+
+  useEffect(() => {
+    if (selectedJobId && activeJobs.length > 0) {
+      const job = activeJobs.find(j => j.id.toString() === selectedJobId);
+      if (job) { setActiveWireTab(job.wire_type); setActiveOrderTab(`order_${job.id}`); }
+    } else if (productionHistory.length > 0 && !activeWireTab && historyWireTypes.length > 0) { 
+      setActiveWireTab(historyWireTypes[0]); 
+    }
+  }, [selectedJobId, activeJobs]);
+
+  useEffect(() => { if (activeWireTab && orderTabs.length > 0) { if (!orderTabs.find(t => t.id === activeOrderTab)) setActiveOrderTab(orderTabs[0].id); } }, [activeWireTab, orderTabs.length]);
+
+  useEffect(() => { if (selectedLine) setOperatorName(localStorage.getItem(`draft_operator_${selectedLine}`) || ''); }, [selectedLine]);
+  useEffect(() => {
+    if (selectedLine && selectedJobId) {
+      setAuditStart(localStorage.getItem(`draft_start_${selectedLine}_${selectedJobId}`) || '');
+      setAuditEnd(localStorage.getItem(`draft_end_${selectedLine}_${selectedJobId}`) || '');
+      setComments(localStorage.getItem(`draft_comments_${selectedLine}_${selectedJobId}`) || '');
+    } else { setAuditStart(''); setAuditEnd(''); setComments(''); }
+  }, [selectedLine, selectedJobId]);
+
+  const handleOperatorChange = (e) => { setOperatorName(e.target.value); localStorage.setItem(`draft_operator_${selectedLine}`, e.target.value); };
+  const handleStartChange = (e) => { setAuditStart(e.target.value); if (selectedJobId) localStorage.setItem(`draft_start_${selectedLine}_${selectedJobId}`, e.target.value); };
+  const handleEndChange = (e) => { setAuditEnd(e.target.value); if (selectedJobId) localStorage.setItem(`draft_end_${selectedLine}_${selectedJobId}`, e.target.value); };
+  const handleCommentsChange = (e) => { setComments(e.target.value); if (selectedJobId) localStorage.setItem(`draft_comments_${selectedLine}_${selectedJobId}`, e.target.value); };
+
+  const autoFillStart = async () => {
+    const currentJob = activeJobs.find(j => j.id.toString() === selectedJobId);
+    if (!currentJob) return;
+    const jobHistory = productionHistory.filter(log => log.job_id === currentJob.id);
+    if (jobHistory.length > 0) {
+      const maxAuditEnd = Math.max(...jobHistory.map(log => log.audit_end));
+      const nextStart = String(maxAuditEnd + 1);
+      setAuditStart(nextStart); localStorage.setItem(`draft_start_${selectedLine}_${selectedJobId}`, nextStart);
+    } else { await showCustomModal("Notice", "This is the first unit for this job! No previous number exists.", "alert"); }
+  };
+
+  const handlePostNote = async () => {
+    if (!newNoteText.trim()) return;
+    if (!operatorName.trim()) { await showCustomModal("Missing Name", "Please enter your Operator Name inside the white form so we know who wrote this note.", "alert"); return; }
+    
+    try {
+      const response = await fetch('https://pti-cables-system.onrender.com/api/notes', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ line_name: selectedLine, message: newNoteText, author: `${operatorName} (${getCurrentShift()} Shift)` }) 
+      });
+      if (response.ok) { setNewNoteText(''); fetchData(selectedLine); }
+    } catch (error) { console.error(error); }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    const proceed = await showCustomModal("Resolve Note?", "Are you sure you want to remove this sticky note? Only remove it if the issue has been resolved.", "confirm");
+    if (!proceed) return;
+    try {
+      await fetch(`https://pti-cables-system.onrender.com/api/notes/${noteId}`, { method: 'DELETE' });
+      fetchData(selectedLine);
+    } catch (error) { console.error(error); }
+  };
+
+  const currentJob = activeJobs.find(j => j.id.toString() === selectedJobId);
+  const isReelJob = currentJob ? currentJob.pallets_needed === 0 : false;
+  const jobHistory = currentJob ? productionHistory.filter(log => log.job_id === currentJob.id) : [];
+  const completedForJob = currentJob ? (isReelJob ? jobHistory.reduce((sum, log) => sum + log.total_spools, 0) : jobHistory.length) : 0;
+  const targetForJob = currentJob ? (isReelJob ? currentJob.spools_per_pallet : currentJob.pallets_needed) : 0;
+  const remainingForJob = currentJob ? targetForJob - completedForJob : 0;
+  const currentUnitNum = currentJob ? jobHistory.length + 1 : 1;
+  const expectedQty = currentJob ? currentJob.spools_per_pallet : 0;
+
+  const submitPallet = async () => {
+    if (!operatorName.trim()) { await showCustomModal("Missing Info", "Please enter the Operator's Name.", "alert"); return; }
+    if (!auditStart || !auditEnd) { await showCustomModal("Missing Info", "Please enter both Start and End Audit numbers.", "alert"); return; }
+
+    const startNum = Number(auditStart); const endNum = Number(auditEnd); const span = endNum - startNum + 1; 
+    if (span <= 0) { await showCustomModal("Invalid Numbers", "The Audit End number must be greater than or equal to the Audit Start number.\nQuantity cannot be 0 or negative.", "alert"); return; }
+
+    if (jobHistory.length > 0) {
+      const overlappingRecord = jobHistory.find(log => startNum <= log.audit_end && endNum >= log.audit_start);
+      if (overlappingRecord) {
+        await showCustomModal("Duplicate Audit Error!", `The numbers you entered overlap with a previously submitted record for this job (Audit ${overlappingRecord.audit_start} to ${overlappingRecord.audit_end}).\n\nPlease enter a range that has not been used yet.`, "alert");
+        return; 
+      }
+    }
+
+    let finalSpools = span;
+    let finalComments = comments;
+
+    if (!isReelJob && currentJob && span !== expectedQty) {
+      const result = await showCustomModal("Quantity Variance Detected", "The number of labels you scanned does not match the target quantity. Please select a reason for the variance.", "variance", { span: span, target: expectedQty });
+      if (result === false) return; 
+      finalSpools = result.spoolsMade;
+      finalComments = comments.trim() ? `${result.comments} | Gen Notes: ${comments}` : result.comments;
+    }
+
+    if (currentJob && remainingForJob <= 0) {
+      const proceed = await showCustomModal("Overproduction Warning", `This job only required ${targetForJob} total and is already complete.\n\nDo you want to submit extra production anyway?`, "confirm");
+      if (!proceed) return;
+    }
+    if (isReelJob && finalSpools > remainingForJob && remainingForJob > 0) {
+        const proceed = await showCustomModal("Overproduction Warning", `You are submitting ${finalSpools} reels, but only ${remainingForJob} are needed to finish the order.\n\nDo you want to submit anyway?`, "confirm");
+        if (!proceed) return;
+    }
+
+    const payload = { 
+      line_name: selectedLine, job_id: currentJob.id, operator_name: operatorName, wire_type: currentJob.wire_type,
+      comments: finalComments, pallet_num: isReelJob ? 0 : currentUnitNum, audit_start: startNum, audit_end: endNum, 
+      total_spools: finalSpools, shift: getCurrentShift(), qty_requested: expectedQty 
+    };
+
+    try {
+      const response = await fetch('https://pti-cables-system.onrender.com/api/pallets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (response.ok) {
+        setAuditStart(''); setAuditEnd(''); setComments('');
+        localStorage.removeItem(`draft_start_${selectedLine}_${selectedJobId}`); localStorage.removeItem(`draft_end_${selectedLine}_${selectedJobId}`); localStorage.removeItem(`draft_comments_${selectedLine}_${selectedJobId}`);
+        setActiveWireTab(currentJob.wire_type); setActiveOrderTab(`order_${currentJob.id}`);
+        fetchData(selectedLine);
+      }
+    } catch (error) { console.error(error); }
+  };
+
+  const handleQuarantine = async () => {
+    if (!operatorName.trim()) { await showCustomModal("Missing Info", "Please enter the Operator's Name.", "alert"); return; }
+    if (!currentJob) return;
+
+    // Extract standard length from wire_type to pass to modal
+    const targetMatch = currentJob.wire_type.match(/(\d+)m$/i);
+    const targetLength = targetMatch ? parseInt(targetMatch[1], 10) : 0;
+
+    const result = await showCustomModal("Log Quarantine / Defect Reel", "This wire will NOT be counted in standard production. It will be sent to the Admin desk for review.", "quarantine", { targetLength });
+    if (result === false) return;
+
+    const payload = {
+      job_id: currentJob.id, line_name: selectedLine, operator_name: operatorName, wire_type: currentJob.wire_type,
+      length: result.length, reason: result.reason, shift: getCurrentShift()
+    };
+
+    try {
+      const response = await fetch('https://pti-cables-system.onrender.com/api/quarantine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (response.ok) { printQuarantineLabel(payload); }
+    } catch (error) { console.error(error); }
+  };
+
+  const closeJob = async () => {
+    const proceed = await showCustomModal("Close Work Order?", `Are you sure you want to mark the work order for ${currentJob.wire_type} as complete?\n\nIt will disappear from the active list.`, "confirm");
+    if (!proceed) return;
+    try { await fetch(`https://pti-cables-system.onrender.com/api/jobs/${currentJob.id}/close`, { method: 'POST' }); setSelectedJobId(''); fetchData(selectedLine); } catch (error) { console.error(error); }
+  };
+
+  const activeOrderObj = orderTabs.find(t => t.id === activeOrderTab);
+  const isHistoryReel = activeWireTab.match(/(\d+)m$/i) && parseInt(activeWireTab.match(/(\d+)m$/i)[1], 10) > 300;
+
+  return (
+    <>
+      {!selectedLine ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', animation: 'fadeIn 0.4s' }}>
+          
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <div style={{ fontSize: '56px', marginBottom: '16px', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))' }}>🏭</div>
+            <h2 style={{ color: '#f8fafc', fontWeight: '800', fontSize: '36px', margin: '0 0 12px 0', letterSpacing: '1px' }}>Terminal Login</h2>
+            <p style={{ color: '#94a3b8', fontSize: '18px', margin: 0, fontWeight: '500' }}>Select your active machine to begin production logging.</p>
           </div>
           
-          <div className="hide-scrollbar" style={{ display: 'flex', gap: '6px', overflowX: 'auto', padding: '0 24px', borderBottom: `3px solid ${completedTabColor}` }}>
-            {safeLines.map(line => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', width: '100%', maxWidth: '1100px' }}>
+            {lines.map(line => (
               <button 
                 key={line} 
-                onClick={() => setCompletedTab(line)}
+                onClick={() => setSelectedLine(line)} 
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-6px)';
+                  e.currentTarget.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 0 15px rgba(56, 189, 248, 0.2)';
+                  e.currentTarget.style.borderColor = '#38bdf8';
+                  e.currentTarget.style.color = '#ffffff';
+                  e.currentTarget.children[0].style.transform = 'scale(1.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.2)';
+                  e.currentTarget.style.borderColor = '#334155';
+                  e.currentTarget.style.color = '#cbd5e1';
+                  e.currentTarget.children[0].style.transform = 'scale(1)';
+                }}
                 style={{ 
-                  padding: '10px 20px', borderRadius: '10px 10px 0 0', fontSize: '13px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap', transition: '0.2s', border: '2px solid',
-                  borderColor: completedTab === line ? '#3b82f6 #3b82f6 transparent #3b82f6' : 'transparent',
-                  backgroundColor: completedTab === line ? '#ffffff' : '#e2e8f0', 
-                  color: completedTab === line ? '#1e3a8a' : '#64748b', 
-                  marginBottom: '-3px', position: 'relative', zIndex: completedTab === line ? 10 : 1
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
+                  padding: '36px 20px', fontSize: '22px', fontWeight: '800', cursor: 'pointer', 
+                  backgroundColor: '#1e293b', border: '2px solid #334155', color: '#cbd5e1', 
+                  borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.2)', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' 
                 }}>
+                <span style={{ fontSize: '42px', transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}>⚙️</span>
                 {line}
               </button>
             ))}
-            <button 
-                key="Rework" 
-                onClick={() => setCompletedTab('Rework')}
-                style={{ 
-                  padding: '10px 20px', borderRadius: '10px 10px 0 0', fontSize: '13px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap', transition: '0.2s', border: '2px solid',
-                  borderColor: completedTab === 'Rework' ? '#9333ea #9333ea transparent #9333ea' : 'transparent',
-                  backgroundColor: completedTab === 'Rework' ? '#ffffff' : '#e2e8f0', 
-                  color: completedTab === 'Rework' ? '#581c87' : '#64748b', 
-                  marginBottom: '-3px', position: 'relative', zIndex: completedTab === 'Rework' ? 10 : 1
-                }}>
-                ✂️ Rework
-            </button>
           </div>
         </div>
-        
-        <div className="hide-scrollbar" style={{ width: '100%', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>{isReworkTab ? 'Station' : 'Machine'}</th>
-                  <th style={thStyle}>{isReworkTab ? 'Original Wire Product' : 'Wire Product'}</th>
-                  <th style={{...thStyle, textAlign: 'center'}}>Target Request</th>
-                  <th style={{...thStyle, textAlign: 'center'}}>Actual Produced</th>
-                  <th style={{...thStyle, textAlign: 'center'}}>Final Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedCompletedJobs.map((job, index) => {
-                  if (isReworkTab) {
-                    const logs = reworkHistory.filter(p => p.job_id === job.id);
-                    const actual = logs.reduce((sum, p) => sum + p.qty_produced, 0);
-                    const target = job.target_qty;
-                    const isShort = actual < target;
-                    const isOver = actual > target;
-                    const diffText = `${Math.abs(actual - target)} Units`;
-
-                    let statusColor = '#059669'; let statusBg = '#dcfce7'; let statusText = '🎯 Perfect Match';
-                    if (isShort) { statusColor = '#dc2626'; statusBg = '#fee2e2'; statusText = `📉 Short (-${diffText})`; } 
-                    else if (isOver) { statusColor = '#b45309'; statusBg = '#fef08a'; statusText = `📈 Over (+${diffText})`; }
-
-                    return (
-                      <tr key={`rw-${job.id}`} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#faf5ff' }}>
-                        <td style={{...tdStyle, fontWeight: '800', color: '#581c87'}}>Rework Station</td>
-                        <td style={{...tdStyle, fontWeight: '700', color: '#0f172a'}}>{job.source_wire}</td>
-                        <td style={{...tdStyle, color: '#475569', fontWeight: '600', textAlign: 'center'}}>{target} Units</td>
-                        <td style={{...tdStyle, color: '#0f172a', fontWeight: '900', textAlign: 'center'}}>{actual} Units</td>
-                        <td style={{...tdStyle, textAlign: 'center'}}>
-                          <span style={{ backgroundColor: statusBg, color: statusColor, padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px' }}>{statusText}</span>
-                        </td>
-                      </tr>
-                    );
-                  } else {
-                    const isReel = job.pallets_needed === 0;
-                    const jobLogs = allPallets.filter(p => p.job_id === job.id);
-                    let targetText = ''; let actualText = ''; let isShort = false; let isOver = false; let diffText = '';
-
-                    if (isReel) {
-                      const targetReels = job.spools_per_pallet;
-                      const actualReels = jobLogs.reduce((sum, p) => sum + p.total_spools, 0);
-                      targetText = `${targetReels} Reels`; actualText = `${actualReels} Reels`;
-                      isShort = actualReels < targetReels; isOver = actualReels > targetReels;
-                      diffText = `${Math.abs(actualReels - targetReels)} Reels`;
-                    } else {
-                      const targetPallets = job.pallets_needed;
-                      const targetSpools = job.pallets_needed * job.spools_per_pallet;
-                      const actualPallets = jobLogs.length;
-                      const actualSpools = jobLogs.reduce((sum, p) => sum + p.total_spools, 0);
-                      targetText = `${targetPallets} Pallets (${targetSpools} Spools)`;
-                      actualText = `${actualPallets} Pallets (${actualSpools} Spools)`;
-                      isShort = actualSpools < targetSpools; isOver = actualSpools > targetSpools;
-                      diffText = `${Math.abs(actualSpools - targetSpools)} Spools`;
-                    }
-
-                    let statusColor = '#059669'; let statusBg = '#dcfce7'; let statusText = '🎯 Perfect Match';
-                    if (isShort) { statusColor = '#dc2626'; statusBg = '#fee2e2'; statusText = `📉 Short (-${diffText})`; } 
-                    else if (isOver) { statusColor = '#b45309'; statusBg = '#fef08a'; statusText = `📈 Over (+${diffText})`; }
-
-                    return (
-                      <tr key={`prod-${job.id}`} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <td style={{...tdStyle, fontWeight: '800', color: '#1e3a8a'}}>{job.line_name}</td>
-                        <td style={{...tdStyle, fontWeight: '700', color: '#0f172a'}}>{job.wire_type}</td>
-                        <td style={{...tdStyle, color: '#475569', fontWeight: '600', textAlign: 'center'}}>{targetText}</td>
-                        <td style={{...tdStyle, color: '#0f172a', fontWeight: '900', textAlign: 'center'}}>{actualText}</td>
-                        <td style={{...tdStyle, textAlign: 'center'}}>
-                          <span style={{ backgroundColor: statusBg, color: statusColor, padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px' }}>{statusText}</span>
-                        </td>
-                      </tr>
-                    );
-                  }
-                })}
-
-                {Array.from({ length: COMPLETED_PER_PAGE - displayedCompletedJobs.length }).map((_, i) => {
-                  const absoluteIndex = displayedCompletedJobs.length + i;
-                  const isFirstEmptyAndNoData = displayedCompletedJobs.length === 0 && i === 0;
-                  
-                  return (
-                    <tr key={`empty-${i}`} style={{ backgroundColor: absoluteIndex % 2 === 0 ? '#ffffff' : (isReworkTab ? '#faf5ff' : '#f8fafc'), height: '42px' }}>
-                      {isFirstEmptyAndNoData ? (
-                        <td colSpan="5" style={{...tdStyle, textAlign: 'center', color: '#94a3b8', fontWeight: '500'}}>
-                          No completed jobs recorded for {completedTab}.
-                        </td>
-                      ) : (
-                        <>
-                          <td style={tdStyle}>&nbsp;</td>
-                          <td style={tdStyle}>&nbsp;</td>
-                          <td style={tdStyle}>&nbsp;</td>
-                          <td style={tdStyle}>&nbsp;</td>
-                          <td style={tdStyle}>&nbsp;</td>
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-        </div>
-        
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 32px', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '0 0 12px 12px', flexShrink: 0 }}>
-          <button disabled={completedPage <= 1} onClick={() => setCompletedPage(p => p - 1)} style={{ padding: '8px 20px', backgroundColor: completedPage <= 1 ? '#e2e8f0' : '#3b82f6', color: completedPage <= 1 ? '#94a3b8' : 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '13px', cursor: completedPage <= 1 ? 'not-allowed' : 'pointer', transition: '0.2s' }}>
-            ← Previous
-          </button>
-          <span style={{ fontSize: '14px', fontWeight: '700', color: '#475569' }}>
-            Page {completedPage} of {totalCompletedPages}
-          </span>
-          <button disabled={completedPage >= totalCompletedPages} onClick={() => setCompletedPage(p => p + 1)} style={{ padding: '8px 20px', backgroundColor: completedPage >= totalCompletedPages ? '#e2e8f0' : '#3b82f6', color: completedPage >= totalCompletedPages ? '#94a3b8' : 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '13px', cursor: completedPage >= totalCompletedPages ? 'not-allowed' : 'pointer', transition: '0.2s' }}>
-            Next →
-          </button>
-        </div>
-      </div>
-
-      {/* --- NEW REWORK CONVERSION MODAL --- */}
-      {qReworkModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-          <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', width: '100%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'fadeIn 0.2s' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '8px', color: '#0f172a', fontSize: '22px', fontWeight: '800' }}>Send to Rework</h3>
-            <p style={{ margin: '0 0 24px 0', color: '#475569', fontSize: '15px' }}>Convert this quarantined wire into an actionable rework task.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '32px' }}>
-              <div>
-                <label style={labelStyle}>Instructions</label>
-                <input type="text" value={qReworkModal.instruction} onChange={(e) => setQReworkModal({...qReworkModal, instruction: e.target.value})} placeholder="e.g. Cut into 75m spools" style={{...inputStyle, border: '2px solid #d8b4fe'}} autoFocus />
-              </div>
-              <div>
-                <label style={labelStyle}>Target Goal (Qty)</label>
-                <input type="number" value={qReworkModal.target_qty} onChange={(e) => setQReworkModal({...qReworkModal, target_qty: e.target.value})} placeholder="e.g. 5" style={{...inputStyle, border: '2px solid #d8b4fe'}} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '2px solid #f1f5f9', paddingTop: '20px' }}>
-              <button onClick={() => setQReworkModal(null)} style={{ padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', transition: '0.2s', flex: 1 }}>Cancel</button>
-              <button disabled={!qReworkModal.instruction || !qReworkModal.target_qty} onClick={submitQuarantineToRework} style={{ padding: '12px 24px', backgroundColor: (!qReworkModal.instruction || !qReworkModal.target_qty) ? '#d8b4fe' : '#9333ea', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: (!qReworkModal.instruction || !qReworkModal.target_qty) ? 'not-allowed' : 'pointer', boxShadow: '0 4px 6px -1px rgba(147, 51, 234, 0.3)', transition: '0.2s', flex: 2 }}>Dispatch to Rework</button>
-            </div>
+      ) : (
+        <div style={{ animation: 'fadeIn 0.3s' }}>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <h2 style={{ color: '#f8fafc', margin: 0, fontWeight: '500', fontSize: '28px' }}>{selectedLine} <span style={{ color: '#64748b', fontSize: '18px', marginLeft: '12px', fontWeight: '400' }}>Production Dashboard</span></h2>
+            <button onClick={() => setSelectedLine(null)} style={{ padding: '8px 16px', backgroundColor: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', transition: '0.2s' }}>← Switch Machine</button>
           </div>
-        </div>
-      )}
 
-      {/* --- BUILDER MODAL --- */}
-      {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-          <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', width: '100%', maxWidth: '500px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'fadeIn 0.2s' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '24px', color: '#0f172a', fontSize: '22px', fontWeight: '800' }}>Wire Builder</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
-              <div><label style={labelStyle}>1. Wire Type</label><select value={buildType} onChange={(e) => setBuildType(e.target.value)} style={inputStyle}>{TYPE_OPTIONS.map(opt => <option key={opt}>{opt}</option>)}</select></div>
-              <div><label style={labelStyle}>2. Wire Size</label><select value={buildSize} onChange={(e) => setBuildSize(e.target.value)} style={inputStyle}>{SIZE_OPTIONS.map(opt => <option key={opt}>{opt}</option>)}</select></div>
-              <div><label style={labelStyle}>3. Solid / Stranded</label><select value={buildConductor} onChange={(e) => setBuildConductor(e.target.value)} style={inputStyle}>{CONDUCTOR_OPTIONS.map(opt => <option key={opt}>{opt}</option>)}</select></div>
-              <div><label style={labelStyle}>4. Jacket Color</label><select value={buildColor} onChange={(e) => setBuildColor(e.target.value)} style={inputStyle}>{COLOR_OPTIONS.map(opt => <option key={opt}>{opt}</option>)}</select></div>
-              <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>5. Length (Writable)</label><input type="text" value={buildLength} onChange={(e) => setBuildLength(e.target.value)} placeholder="e.g. 75m, 1500m" style={inputStyle} autoFocus /></div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '2px solid #f1f5f9', paddingTop: '20px' }}>
-              <button onClick={() => setIsModalOpen(false)} style={{ padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', transition: '0.2s' }}>Cancel</button>
-              <button onClick={handleAddNewWire} style={{ padding: '12px 24px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.3)', transition: '0.2s' }}>Save to Database</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {dialog && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(4px)' }}>
-          <div style={{ backgroundColor: '#ffffff', padding: '32px', borderRadius: '16px', width: '100%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'fadeIn 0.2s', textAlign: 'center' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>{dialog.type === 'alert' ? '🛑' : '⚠️'}</div>
-            <h3 style={{ margin: '0 0 12px 0', color: '#0f172a', fontSize: '22px', fontWeight: '800' }}>{dialog.title}</h3>
-            <p style={{ margin: '0 0 28px 0', color: '#475569', fontSize: '16px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{dialog.message}</p>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              {dialog.type === 'confirm' && (
-                <button onClick={dialog.onCancel} style={{ padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', flex: 1, transition: '0.2s' }}>Cancel</button>
+          <div style={{ display: 'flex', gap: '32px', alignItems: 'stretch', marginBottom: '32px' }}>
+            
+            {/* COLUMN 1: THE ACTION CENTER */}
+            <div style={{ flex: '0 0 450px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              
+              {activeJobs.some(j => j.priority === 1) && (
+                <div style={{ backgroundColor: '#fef2f2', border: '2px solid #ef4444', padding: '16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 10px 15px -3px rgba(239, 68, 68, 0.2)' }}>
+                  <div style={{ fontSize: '32px' }}>🚨</div>
+                  <div>
+                      <h3 style={{ margin: '0 0 4px 0', color: '#b91c1c', fontSize: '16px', fontWeight: '800', textTransform: 'uppercase' }}>Urgent Priority</h3>
+                      <p style={{ margin: 0, color: '#7f1d1d', fontSize: '14px', fontWeight: '600' }}>Run <strong>{activeJobs.find(j => j.priority === 1).wire_type}</strong> immediately.</p>
+                  </div>
+                </div>
               )}
-              <button onClick={dialog.onConfirm} style={{ padding: '12px 20px', backgroundColor: dialog.type === 'alert' ? '#3b82f6' : '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: 'pointer', flex: 1, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', transition: '0.2s' }}>
-                {dialog.type === 'alert' ? 'Understood' : 'Yes, Proceed'}
-              </button>
+
+              {/* Data Entry Card */}
+              <div style={{ backgroundColor: '#ffffff', padding: '28px', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+                {activeJobs.length === 0 ? (
+                  <div style={{ backgroundColor: '#f1f5f9', border: '1px dashed #cbd5e1', padding: '30px', borderRadius: '8px', textAlign: 'center', color: '#64748b', fontWeight: '600' }}>Awaiting Admin Dispatch. No active job found.</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    <div>
+                      <label style={STYLES.label}>
+                        Operator Name
+                        <span style={{marginLeft: '12px', padding: '4px 8px', borderRadius: '4px', backgroundColor: getCurrentShift() === 'Day' ? '#fef3c7' : '#dbeafe', color: getCurrentShift() === 'Day' ? '#b45309' : '#1e40af', fontSize: '10px', fontWeight: '800'}}>
+                          {getCurrentShift() === 'Day' ? '☀️ DAY SHIFT' : '🌙 NIGHT SHIFT'}
+                        </span>
+                      </label>
+                      <input type="text" value={operatorName} onChange={handleOperatorChange} style={STYLES.input} placeholder="Enter your name..." />
+                    </div>
+
+                    <div style={{ backgroundColor: isReelJob ? '#fff7ed' : '#eff6ff', border: '1px solid', borderColor: isReelJob ? '#fed7aa' : '#bfdbfe', borderRadius: '8px', padding: '16px' }}>
+                      <label style={{...STYLES.label, color: isReelJob ? '#9a3412' : '#1e40af'}}>Active Work Order</label>
+                      <select value={selectedJobId} onChange={(e) => setSelectedJobId(e.target.value)} style={{ width: '100%', padding: '12px', fontSize: '18px', fontWeight: '800', color: isReelJob ? '#9a3412' : '#1e3a8a', backgroundColor: 'white', border: '1px solid', borderColor: isReelJob ? '#fdba74' : '#93c5fd', borderRadius: '6px', outline: 'none', marginBottom: '16px', cursor: 'pointer' }}>
+                        {activeJobs.map(job => <option key={job.id} value={job.id}>{job.priority === 1 ? '⭐ ' : ''}{job.wire_type}</option>)}
+                      </select>
+                      
+                      {currentJob && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: `1px dashed ${isReelJob ? '#fdba74' : '#93c5fd'}`, paddingTop: '12px' }}>
+                          <div>
+                            <div style={{ fontSize: '12px', color: isReelJob ? '#9a3412' : '#1e40af', fontWeight: '800', marginBottom: '4px', backgroundColor: isReelJob ? '#ffedd5' : '#dbeafe', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                              Target: {expectedQty} {isReelJob ? 'Reels' : 'Spools'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: isReelJob ? '#ea580c' : '#3b82f6', fontWeight: '600', marginTop: '4px' }}>({completedForJob} of {targetForJob} total)</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '12px', color: isReelJob ? '#9a3412' : '#1e40af', fontWeight: '700', textTransform: 'uppercase' }}>Remaining</div>
+                            <div style={{ fontSize: '32px', fontWeight: '900', lineHeight: '1', color: remainingForJob <= 0 ? '#10b981' : (isReelJob ? '#c2410c' : '#1e3a8a') }}>{remainingForJob < 0 ? 0 : remainingForJob}</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {currentJob && (
+                       <button onClick={closeJob} style={{ padding: '8px', backgroundColor: 'transparent', color: isReelJob ? '#9a3412' : '#1e3a8a', border: `1px solid ${isReelJob ? '#fdba74' : '#93c5fd'}`, fontSize: '12px', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', transition: '0.2s' }}>Mark Job Complete Manually</button>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px'}}>
+                          <label style={{...STYLES.label, margin: 0}}>Audit Start</label>
+                          <button onClick={autoFillStart} style={{ fontSize: '11px', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: '700' }}>Auto-Fill</button>
+                        </div>
+                        <input type="number" value={auditStart} onChange={handleStartChange} style={STYLES.input} />
+                      </div>
+                      <div>
+                        <label style={STYLES.label}>Audit End</label>
+                        <input type="number" value={auditEnd} onChange={handleEndChange} style={STYLES.input} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={STYLES.label}>Comments (Optional)</label>
+                      <input type="text" value={comments} onChange={handleCommentsChange} style={STYLES.input} placeholder="Damaged labels, tension issues..." />
+                    </div>
+
+                    {/* ONLY SHOW QUARANTINE BUTTON IF MASTER REEL */}
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                      <button onClick={submitPallet} disabled={!currentJob} style={{ flex: isReelJob ? 2 : 1, padding: '18px', backgroundColor: remainingForJob <= 0 ? '#f59e0b' : '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase', cursor: currentJob ? 'pointer' : 'not-allowed', boxShadow: '0 4px 6px -1px rgba(0,0,0, 0.1)', transition: '0.2s' }}>
+                        {isReelJob ? (remainingForJob <= 0 ? 'Submit Extra' : `Submit Reel Log`) : (remainingForJob <= 0 ? 'Submit Extra' : `Submit Pallet ${currentUnitNum}`)}
+                      </button>
+                      
+                      {isReelJob && (
+                        <button onClick={handleQuarantine} disabled={!currentJob} style={{ flex: 1, padding: '18px 12px', backgroundColor: '#fff7ed', color: '#ea580c', border: '2px solid #fdba74', borderRadius: '8px', fontSize: '13px', fontWeight: '800', textTransform: 'uppercase', cursor: currentJob ? 'pointer' : 'not-allowed', transition: '0.2s', lineHeight: '1.2' }}>
+                          Log Odd / Defect Reel
+                        </button>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* COLUMN 2: THE LIVE LEDGER */}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', overflow: 'hidden', height: '650px' }}>
+              <div style={{ padding: '20px 24px 10px 24px', backgroundColor: '#0f172a', flexShrink: 0 }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>1. Select Wire Master Database</h3>
+                <div className="hide-scrollbar" style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '10px' }}>
+                  {historyWireTypes.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '13px' }}>No production history found.</div> : 
+                    historyWireTypes.map(wire => (
+                      <button key={wire} onClick={() => setActiveWireTab(wire)} style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap', transition: '0.2s', border: '1px solid', borderColor: activeWireTab === wire ? '#38bdf8' : '#334155', backgroundColor: activeWireTab === wire ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeWireTab === wire ? '#f8fafc' : '#94a3b8' }}>{wire}</button>
+                    ))
+                  }
+                </div>
+              </div>
+
+              {activeWireTab && orderTabs.length > 0 && (
+                <div className="hide-scrollbar" style={{ padding: '12px 24px', backgroundColor: '#f1f5f9', borderBottom: '1px solid #cbd5e1', display: 'flex', gap: '10px', overflowX: 'auto', alignItems: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginRight: '4px' }}>2. ORDER:</span>
+                  {orderTabs.map(tab => {
+                    const startDate = formatDate(tab.logs[tab.logs.length - 1].timestamp);
+                    const endDate = formatDate(tab.logs[0].timestamp);
+                    const dateStr = startDate === endDate ? startDate : `${startDate} - ${endDate}`;
+                    return (
+                      <button key={tab.id} onClick={() => setActiveOrderTab(tab.id)} style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap', transition: '0.2s', border: activeOrderTab === tab.id ? '1px solid #0f172a' : '1px solid #cbd5e1', backgroundColor: activeOrderTab === tab.id ? '#1e293b' : '#ffffff', color: activeOrderTab === tab.id ? '#ffffff' : '#475569', boxShadow: activeOrderTab === tab.id ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
+                        {tab.realId ? `Order #${tab.realId}` : 'Legacy Data'} <span style={{ fontWeight: 'normal', opacity: 0.8, marginLeft: '4px' }}>({dateStr})</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <LogBookTable activeOrderObj={activeOrderObj} isHistoryReel={isHistoryReel} />
+            </div>
+
+            {/* COLUMN 3: STICKY NOTES */}
+            <div style={{ flex: '0 0 280px', display: 'flex', flexDirection: 'column', height: '650px' }}>
+              <div style={{ backgroundColor: '#fef08a', padding: '20px 16px 12px 16px', position: 'relative', boxShadow: '3px 6px 15px rgba(0,0,0,0.2)', transform: 'rotate(-1deg)', borderBottomRightRadius: '16px', flexShrink: 0 }}>
+                 <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', fontSize: '28px', zIndex: 2, filter: 'drop-shadow(1px 2px 2px rgba(0,0,0,0.3))' }}>📌</div>
+                 <textarea 
+                    value={newNoteText}
+                    onChange={(e) => setNewNoteText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handlePostNote()}
+                    placeholder="Write a handoff note..."
+                    style={{ width: '100%', height: '60px', backgroundColor: 'transparent', border: 'none', outline: 'none', resize: 'none', color: '#451a03', fontSize: '14px', fontStyle: 'italic', fontWeight: '500', fontFamily: 'sans-serif' }}
+                 />
+                 <div style={{ textAlign: 'right', marginTop: '4px' }}>
+                   <button onClick={handlePostNote} style={{ background: '#d97706', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.15)' }}>Pin It</button>
+                 </div>
+              </div>
+
+              <div className="hide-scrollbar" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '20px 4px 10px 4px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {shiftNotes.map((note, index) => (
+                  <div key={note.id} style={{ backgroundColor: index % 2 === 0 ? '#fef9c3' : '#fef08a', padding: '20px 16px 16px 16px', position: 'relative', boxShadow: '3px 6px 15px rgba(0,0,0,0.2)', transform: `rotate(${index % 2 === 0 ? 2 : -1.5}deg)`, borderBottomRightRadius: '16px' }}>
+                      <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', fontSize: '28px', zIndex: 2, filter: 'drop-shadow(1px 2px 2px rgba(0,0,0,0.3))' }}>📌</div>
+                      <button onClick={() => handleDeleteNote(note.id)} style={{ position: 'absolute', top: '8px', right: '4px', background: 'none', border: 'none', color: '#b45309', fontSize: '16px', cursor: 'pointer', opacity: 0.5 }} title="Remove Note">✖</button>
+                      <p style={{ margin: '8px 0 12px 0', color: '#451a03', fontSize: '14px', fontStyle: 'italic', fontWeight: '500', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.4' }}>{note.message}</p>
+                      <div style={{ borderTop: '1px solid rgba(180, 83, 9, 0.2)', paddingTop: '8px' }}>
+                        <span style={{ fontSize: '11px', color: '#b45309', fontWeight: '800', display: 'block' }}>{note.author}</span>
+                        <span style={{ fontSize: '10px', color: '#d97706', fontWeight: '600' }}>{formatDate(note.timestamp)} {formatClockTime(note.timestamp)}</span>
+                      </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       )}
-    </div>
+      <ActionModal config={dialogConfig} onClose={() => setDialogConfig(null)} />
+    </>
   );
 }
