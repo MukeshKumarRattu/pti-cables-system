@@ -7,7 +7,7 @@ const SIZE_OPTIONS = [
   "14/19", "12/19", "10/19", "8/19", "6/19", "4/19", "3/19", "2/19",
   "14/7", "12/7", "10/7", "8/7", "6/7", "4/7", "3/7", "2/7", "1/7"
 ];
-const CONDUCTOR_OPTIONS = ["N/A", "Solid", "Stranded"];
+const CONDUCTOR_OPTIONS = ["N/A", "Solid", "Stranded", "Coils"];
 const COLOR_OPTIONS = ["None", "Red", "Black", "White", "Blue", "Green", "Yellow", "Brown", "Orange", "Cyan", "Grey", "Pink", "Purple"];
 
 export default function AdminPanel({ lines }) {
