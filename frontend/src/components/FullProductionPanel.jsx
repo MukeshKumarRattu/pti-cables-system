@@ -94,13 +94,13 @@ export default function FullProductionPanel({ lines }) {
   useEffect(() => {
     const fetchMasterLog = async () => {
       try {
-        const pRes = await fetch('http://127.0.0.1:8000/api/history');
+        const pRes = await fetch('https://pti-cables-system.onrender.com/api/history');
         if (pRes.ok) {
           const data = await pRes.json();
           setAllLogs(data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
         }
         
-        const rRes = await fetch('http://127.0.0.1:8000/api/rework-history');
+        const rRes = await fetch('https://pti-cables-system.onrender.com/api/rework-history');
         if (rRes.ok) {
           const rData = await rRes.json();
           setReworkLogs(rData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
