@@ -37,7 +37,7 @@ export default function ReworkPanel() {
 
   const fetchData = async () => {
     try {
-      const jobRes = await fetch(`http://127.0.0.1:8000/api/rework-jobs`);
+      const jobRes = await fetch(`https://pti-cables-system.onrender.com/api/rework-jobs`);
       if (jobRes.ok) {
         const jobData = await jobRes.json();
         setActiveJobs(jobData);
@@ -45,7 +45,7 @@ export default function ReworkPanel() {
         else if (jobData.length === 0) setSelectedJobId('');
       }
       
-      const historyRes = await fetch(`http://127.0.0.1:8000/api/rework-history`);
+      const historyRes = await fetch(`https://pti-cables-system.onrender.com/api/rework-history`);
       if (historyRes.ok) {
         const historyData = await historyRes.json();
         setReworkHistory(historyData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
@@ -97,7 +97,7 @@ export default function ReworkPanel() {
     };
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/rework-logs', { 
+      const response = await fetch('https://pti-cables-system.onrender.com/api/rework-logs', { 
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
       });
       if (response.ok) {
@@ -111,7 +111,7 @@ export default function ReworkPanel() {
     const proceed = await showCustomModal("Close Job?", `Are you sure you want to mark this rework job as complete?`, "confirm");
     if (!proceed) return;
     try { 
-      await fetch(`http://127.0.0.1:8000/api/rework-jobs/${currentJob.id}/close`, { method: 'POST' }); 
+      await fetch(`https://pti-cables-system.onrender.com/api/rework-jobs/${currentJob.id}/close`, { method: 'POST' }); 
       setSelectedJobId(''); 
       fetchData(); 
     } catch (error) { console.error(error); }
