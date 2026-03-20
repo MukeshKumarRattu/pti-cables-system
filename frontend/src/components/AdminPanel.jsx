@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-const TYPE_OPTIONS = ["NMD90", "NMWU", "T90", "RW90", "RWU90", "TWU", "TRACER WIRE"];
+const TYPE_OPTIONS = ["NMD90", "NMWU", "T90", "RW90", "RWU90", "TWU", "TRACER WIRE", "BARE COPPER"];
 const SIZE_OPTIONS = [
   "14/2", "14/3", "12/2", "12/3", "10/2", "10/3", "8/2", "8/3", "6/2", "6/3", "4/3", 
   "16 AWG", "14 AWG", "12 AWG", "10 AWG", "8 AWG", "6 AWG", "4 AWG", "3 AWG", "2 AWG", "1/0 AWG", "2/0 AWG", "3/0 AWG", "4/0 AWG",
